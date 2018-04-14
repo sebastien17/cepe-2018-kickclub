@@ -2,14 +2,47 @@
 title: "Exploration"
 output: html_notebook
 ---
+#Dataset 02
+##Data loading
 
 ```{r}
-#Test
-plot(cars)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+dt_path <- "D:\\Users\\selautie\\Desktop\\KickClub Project\\Dataset_02_LendingClub\\Transformed\\loan.csv"
+dt_ <- data.table::fread(dt_path, stringsAsFactors=TRUE)
+
 ```
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+##Data Exploration
+Classiques
+```{r}
+str(dt_)
+summary(dt_)
+```
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+Descripteur (ratio NA's & classes de variables)
+```{r}
+sum_na <- sapply(dt_, function(col){sum(is.na(col))})
+ratio_na <- sum_na/dim(dt_)[1]
+which_class <- sapply(dt_, function(col){class(col)})
+var_name <- names(dt_)
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+tmp <-data.frame(cbind(var_name,ratio_na, which_class,sum_na))
+descriptor <- tmp %>% mutate(sum_na_n = as.numeric(as.character(descriptor$sum_na))) %>% select(-sum_na) %>% arrange(ratio_na)
+
+descriptor
+```
+On remarque seulement 15 levels différents pour le ratio_na ==> na sont très probablement des na de groupe
+
+```{r}
+length(levels(descriptor$ratio_na))
+ggplot(data.frame(x= descriptor$var_name, y = as.numeric(as.character(descriptor$ratio_na))), aes(x=reorder(x, y),y=y, col=which_class))+
+        geom_point() +
+        theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+Liste des variable avec un taux na > 0,5
+```{r}
+descriptor$var_name[as.numeric(as.character(descriptor$ratio_na))>0.5]
+```
+
