@@ -41,8 +41,16 @@ ggplot(data.frame(x= descriptor$var_name, y = as.numeric(as.character(descriptor
         geom_point() +
         theme(axis.text.x = element_text(angle = 90, hjust = 1))
 ```
-Liste des variable avec un taux na > 0,5
+Liste des variable avec un taux na > 50%
 ```{r}
-descriptor$var_name[as.numeric(as.character(descriptor$ratio_na))>0.5]
+var_to_valid <- descriptor$var_name[as.numeric(as.character(descriptor$ratio_na))>0.5] 
 ```
 
+
+```{r}
+str(dt_[var_to_valid])
+summary(dt_[var_to_valid])
+```
+initial_list_status     :   The initial listing status of the loan. Possible values are – W, F : 
+
+ 
