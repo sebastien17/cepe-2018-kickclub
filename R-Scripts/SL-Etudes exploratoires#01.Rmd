@@ -3,29 +3,39 @@ title: "Exploration"
 output: html_notebook
 ---
 #Dataset 02
-##Data loading
+
+##Libraies loading
 
 ```{r}
 library(data.table)
 library(dplyr)
 library(ggplot2)
+```
+
+##Data loading
+
+```{r}
 dt_path <- "D:\\Users\\selautie\\Desktop\\KickClub Project\\Dataset_02_LendingClub\\Transformed\\loan.csv"
 dt_ <- data.table::fread(dt_path, stringsAsFactors=TRUE)
 
 ```
 
 ##Data Exploration
-Classiques
+
+Basics
+
 ```{r}
 str(dt_)
+glimpse(dt_)
 summary(dt_)
+namse(dt_)
 ```
 
 Descripteur (ratio NA's & classes de variables)
 ```{r}
 sum_na <- sapply(dt_, function(col){sum(is.na(col))})
 ratio_na <- sum_na/dim(dt_)[1]
-which_class <- sapply(dt_, function(col){class(col)})
+which_class <- sapply(dt_, class)
 var_name <- names(dt_)
 
 tmp <-data.frame(cbind(var_name,ratio_na, which_class,sum_na))
@@ -39,18 +49,30 @@ On remarque seulement 15 levels différents pour le ratio_na ==> na sont très p
 length(levels(descriptor$ratio_na))
 ggplot(data.frame(x= descriptor$var_name, y = as.numeric(as.character(descriptor$ratio_na))), aes(x=reorder(x, y),y=y, col=which_class))+
         geom_point() +
-        theme(axis.text.x = element_text(angle = 90, hjust = 1))
+        theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+        labs(x = names(descriptor)[1], title = "Proportion of NAs across variables")
 ```
-Liste des variable avec un taux na > 50%
+Liste des variable avec un taux na > 5% et <90%
 ```{r}
-var_to_valid <- descriptor$var_name[as.numeric(as.character(descriptor$ratio_na))>0.5] 
+var_to_valid <- descriptor$var_name[as.numeric(as.character(descriptor$ratio_na))>0.05 & as.numeric(as.character(descriptor$ratio_na))<0.9]
+var_to_valid
 ```
 
 
-```{r}
-str(dt_[var_to_valid])
-summary(dt_[var_to_valid])
+```{r echo=TRUE, warning=FALSE}
+#str(dt_[,var_to_valid,with=FALSE])
+summary(dt_[,var_to_valid,with=FALSE])
 ```
-initial_list_status     :   The initial listing status of the loan. Possible values are – W, F : 
+```{r warning=FALSE}
+#boxplot(dt_[,var_to_valid,with=FALSE])
+boxplot(log(dt_[,var_to_valid,with=FALSE]))
+```
+Rappel des définitions: 
 
- 
+total_rev_hi_lim            :   Total revolving high credit/credit limit
+tot_cur_bal	                :   Total current balance of all accounts
+tot_coll_amt	              :   Total collection amounts ever owed
+mths_since_last_record	    :   The number of months since the last public record.
+mths_since_last_major_derog	:   Months since most recent 90-day or worse rating
+mths_since_last_delinq	    :   The number of months since the borrower's last delinquency.
+
