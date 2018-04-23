@@ -1,0 +1,376 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Data Exploration
+-----------------------------
+
+Open libraries
+-----------------------------
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(data.table)
+library(forcats)
+library(scales)
+```
+
+ Set the file path
+--------------------------
+
+```{r}
+dirpath <- "C:/Users/Eric/Documents/Eric/Pro/Transition/Formation/CEPE ENSAE ENSAI Certificat Data Scientist/INTENSIVE/PROJETS/KickClub Project"
+dirpath2 <- "Lending Club/LC0715"
+filename <- "loan.csv"
+filename <- "LC0715.RDS"
+savefile <- "LC0715.RDS"
+my_file <- paste(dirpath, dirpath2, filename, sep = "/")
+my_file
+```
+
+Load data
+--------------------------
+
+Check the file's format before retrieving the original data
+Retrieve the original data set
+
+```{r}
+scan(file = my_file, what = "string", nmax = 10)
+my_data <- read.csv(my_file, sep = ",")
+```
+
+Or alternatively, for a faster loading use fread from data.table package
+beware, having 'factor' or 'character' variables is very different!
+
+```{r}
+my_data <- fread(my_file, stringsAsFactors = TRUE)
+```
+
+Save the data in RDS format
+```{r}
+saveRDS(object = my_data, file = paste(dirpath, dirpath2, savefile, sep = "/"))
+```
+
+```{r}
+my_data <- readRDS(my_file)
+```
+
+
+Quick data summary
+-------------------------
+
+Basics
+
+```{r}
+str(my_data)
+summary(my_data)
+glimpse(my_data)
+names(my_data)
+which_class <- sapply(my_data, class)
+```
+
+Note: which_class definition coded below is much simpler than the alternative:
+  " which_class <- sapply(my_data, function(col){class(col)}) ""
+  
+
+Get the variables' classes
+Different classes available in the dataset
+
+```{r}
+variables_types <- unique(sapply(my_data, class))
+```
+
+Calculate the number of variables belonging to each class 
+
+```{r}
+table(sapply(my_data, class))
+```
+
+Calculate the percentage of NAs for each variable
+
+```{r}
+perc_na <- round(sapply(my_data, function(x) sum(is.na(x)/length(x))),4)
+perc_na
+```
+
+
+Draw a graph of percentage NAs 'perc_na' with variable names labels and factor classes color code
+------------ Method #1 ------------------
+
+1) Get the names of variables in a vector
+
+```{r}
+var_name <- names(my_data) # note: all.equal(names(my_data), names(perc_na)) = TRUE
+```
+
+2) we need a data.frame to apply ggplot2
+
+```{r}
+var_summary <- as.data.frame(cbind(var_name, perc_na, which_class))
+var_summary
+sapply(var_summary,class) # perc_na is a 'factor'
+var_summary$perc_na <- as.numeric(as.character(var_summary$perc_na))
+names(var_summary)
+```
+
+3) Arrange data order before drawing the grap
+
+```{r}
+var_summary <- var_summary %>% arrange(perc_na, which_class)
+```
+
+
+4) Draw the graph: percentage of NAs vs. variable name, ordered by indreasing NAs % and variable class
+
+```{r}
+var_summary %>% 
+  ggplot((aes(x = reorder(var_name, order(var_summary$perc_na, decreasing = FALSE)), y = perc_na, color = which_class))) + 
+  geom_point(shape = 18, size = 4) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 10)) +
+  labs(x = names(var_summary), title = "Proportion of NAs across variables")  # or, x = names(var_summary)[1]
+```
+
+5) clean up the environment
+
+```{r}
+rm(var_summary, var_name, perc_na)
+```
+
+------------ Method #2 -------------------
+
+1) Create a data.frame or a list of all the different classes/types 
+Create a dataframe (vector) of "is.'class'" to be used afterwards
+
+```{r}
+# is.variables_types <- c("is.integer", "is.numeric", "is.factor") # what we would like to achieve
+# is.variables_types <- data.frame() # this simple empty data.frame is not enough since we may need to set the dimensions
+is.variables_types <- data.frame(1:length(variables_types)) # we set the number of columns
+```
+
+Or
+
+```{r}
+is.variables_types <- list() # setting the dimension is not necessary in the case of a list
+```
+
+This loop will feed the different variables types into our data.frame (or list)
+
+```{r}
+for (i in 1:length(variables_types)) {
+  is.variables_types[i] <- paste("is.",variables_types[i], sep = "")
+}
+rm(i) 
+```
+
+2) Variables types summary: build a summary list of all the variables according to their respective class/type
+We need a list to create 3 different lists of different size
+
+```{r}
+variables_types_summary <- vector("list", length(variables_types)) # set an empty list of 'length(variables_types)' elements
+names(variables_types_summary) <- variables_types # set its header
+```
+
+The loop below fills in the different elements of the list with the name of variables belonging to the different classes/types
+Index the variables of type [i], to be used if is.variables_types is c("is.integer", "is.numeric", "is.factor")
+
+```{r}
+for (i in 1:length(is.variables_types)) {
+  indx <- sapply(my_data, is.variables_types[[i]][1])
+  variables_types_summary[[i]] <- names(my_data)[indx]  # input the variable name in the relevant class column
+}
+variables_types_summary
+rm(is.variables_types, variables_types, indx, i)
+```
+ 
+3) Calculate different inputs
+
+The share of NAs for each variable
+
+```{r}
+sum_na <- sapply(my_data, function(col){sum(is.na(col))})
+sum_na
+ratio_na <- round(sum_na/dim(my_data)[1],4)
+ratio_na
+```
+
+Set var_name vecvtor 
+
+```{r}
+var_name <- names(my_data) # or names(ratio_na)
+```
+ 
+4) Create a 'descriptor' data.frame that binds the different useful vectors
+
+```{r}
+descriptor <- data.frame(cbind(var_name,which_class, sum_na, ratio_na)) # all columns are factors
+```
+
+Then, convert relevant data in numeric type, and reorganise and rearrage data
+
+```{r}
+descriptor <- descriptor %>% 
+  mutate(sum_na_n = as.numeric(as.character(sum_na)), ratio_na_n = as.numeric(as.character(ratio_na))) %>% 
+  select(-sum_na, -ratio_na) %>% 
+  mutate(ratio_na = ratio_na_n, sum_na = sum_na_n) %>% 
+  select(-ratio_na_n, -sum_na_n) %>% 
+  arrange(ratio_na, which_class)
+```
+
+Check the variables classes and get rid of no longer needed vectors
+
+```{r}
+descriptor %>% sapply(class) 
+rm(ratio_na, sum_na) #  
+
+```
+ 
+5) Draw the graph: percentage of NAs vs. variable name, ordered by indreasing NAs % and variable class
+
+```{r}
+descriptor %>% 
+  ggplot(aes(x = reorder(var_name, order(ratio_na, decreasing = FALSE)), y = ratio_na, color = which_class)) + 
+  geom_point(shape = 18, size = 4) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 10)) +
+  labs(x = names(descriptor)[1], title = "Proportion of NAs across variables") # or, x = names(descriptor) 
+```
+
+clean up the environment
+
+```{r}
+rm(descriptor, variables_types_summary)
+```
+
+FYI: ggplot shapes infos: http://www.sthda.com/english/wiki/ggplot2-point-shapes
+
+
+
+
+
+What are the 'factor' variables ?
+--------------------------
+
+1) Create a list of the different levels available for each 'factor' variable
+
+```{r}
+fac_lev <- sapply(my_data[ , which_class == "factor", with = FALSE], levels)
+class(fac_lev)
+
+```
+
+2) Convert a data.table into a data.frame
+If my_data is indeed a data.frame? (ie. you did load original data with fread())
+
+```{r}
+my_data_df <- as.data.frame(my_data)
+dim(my_data_df[ , which_class == "factor"])
+```
+Note simple subsetting works well with a data.frame instead of a data.table
+
+
+How many levels do 'factor' variables have? Could we simplify them?
+-------------------------------------------------------------------
+
+1) Create vectors with the nb of levels of the different factors and a vetor with the name of the factors
+```{r}
+fac_lev_nb <- sapply(fac_lev, length)
+fac_name <- var_name[which_class == "factor"]
+```
+ 
+
+2) There are so many levels for given factors that you may look at them one by one
+Set i, and check factors one by one
+
+```{r}
+i <- 1
+  fac_name[i] # factor name
+  fac_lev[[i]] # factor's levels
+  length(fac_lev[[i]]) # number of levels (sometimes, there are too many)
+  # plot(my_data_df %>% select(id, fac_name[i]) %>% arrange(id) %>% select(fac_name[i]) %>% table()) # this grpah is not best
+  # Order the frequecy of levels in %
+  as.data.frame(my_data_df %>% select(fac_name[i]) %>% table()) %>% 
+    mutate(perc = round(Freq/sum(Freq), 3)) %>%
+    arrange(desc(perc))
+rm(i)
+```
+
+3) Focus on "loan_status" variable 
+This variable will be key to assess defaulting borrowers later
+
+```{r}
+as.data.frame(my_data_df %>% select(loan_status) %>% table()) %>% 
+  mutate(perc = round(Freq/sum(Freq), 3)) %>%
+  arrange(desc(perc))
+```
+
+
+Deal with date variables : method Lubridate
+--------------------------------------------
+
+1) "issue_d" (i = 8) represents the loan issue date but is a factor : we must convert this variable in 'date' format
+
+```{r}
+my_data_df[ , "issue_d"] <- lubridate::mdy(my_data_df[ , "issue_d"])
+my_data_df[1:12 , "issue_d"]
+class(my_data_df[,"issue_d"]) # date
+```
+
+2) Create a Table and convert it to a data.frame that summarizes the number of loans (id) by date issue (issue_d) 
+
+```{r}
+dt_to_g <- my_data_df %>% select(issue_d) %>% table()
+dt_to_g <- as.data.frame(dt_to_g) # this is a table = convert in df
+str(dt_to_g) # date has been converted into factor again
+colnames(dt_to_g) <- c("date","nb_of_loans") # re-name columns
+head(dt_to_g)
+dt_to_g[ , "date"] <- lubridate::ymd(dt_to_g[ , "date"]) # convert date variable into date format
+str(dt_to_g)
+```
+ 
+3) Plot the number of loans over time (monthly)
+
+```{r}
+dt_to_g %>% ggplot(aes(x = date, y = nb_of_loans)) + 
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8)) +
+  scale_x_date(breaks = date_breaks("years"), labels = date_format("%b-%Y")) + 
+  labs(title = "Number of Loans issued by Month")
+```
+
+Plot the cumulative nb of loans
+
+```{r}
+dt_to_g$cum_nb_of_loans <- cumsum(dt_to_g$nb_of_loans)
+
+dt_to_g %>% ggplot(aes(x = date, y = cum_nb_of_loans)) + 
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8)) +
+  scale_x_date(breaks = date_breaks("years"), labels = date_format("%b-%Y")) + 
+  labs(title = "Cumulative Number of Loans issued by Month")
+
+ 
+```
+
+Clean up
+```{r}
+rm(dt_to_g)
+```
+
+
+What are the 'numeric' variables ?
+-----------------------------------
+
+```{r}
+dim(my_data_df[ , which_class == "numeric"])
+unique(my_data_df[ , which_class == "numeric"] %>% names())
+```
+
+What do they look like
+
+
+
+
+
+ 
