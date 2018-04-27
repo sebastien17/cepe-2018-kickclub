@@ -1,0 +1,185 @@
+---
+title: "Lending Club - set 1"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+```{r}
+
+# load des prêts acceptés
+acc <- read.csv("accepted_2007_to_2017.csv", header = TRUE, sep = ",", dec = ".")
+
+# load des prêts refusés
+rej <- read.csv("rejected_2007_to_2017.csv", header = TRUE, sep = ",", dec = ".")
+
+# définition des variables de acc qui sont aussi présentes dans rej
+acc.header <- c("funded_amnt",
+                "payment_plan_start_date",
+                "title",
+                "fico_range_high",
+                "fico_range_low",
+                "dti",
+                "zip_code",
+                "addr_state",
+                "emp_length",
+                "policy_code")
+
+acc <- acc[,acc.header]
+
+# une colonne fico est ajoutée avec la moyenne du low et high
+acc$fico <- (acc$fico_range_high+acc$fico_range_low)/2
+
+# définition des variables qu'on garde (fico_range_low et fico_range_high sont remplacées par fico)
+common.header <- c("funded_amnt",
+                   "payment_plan_start_date",
+                   "title",
+                   "fico",
+                   "dti",
+                   "zip_code",
+                   "addr_state",
+                   "emp_length",
+                   "policy_code")
+
+acc <- acc[,common.header]
+
+# renommage des variables de rej (elles sont déjà ordonnées)
+colnames(rej) <- common.header
+
+rej <- rej[,common.header]
+
+# nettoyage de la colonne dti de rej
+rej$dti <- as.numeric(sub("%", "", rej$dti))
+
+# ajout de l'étiquette ACCEPTED/REJECTED
+acc$kind <- "ACCEPTED"
+rej$kind <- "REJECTED"
+
+# nettoyage de acc
+summary(acc)
+sapply(acc, class)
+
+# conversion en date de la variale payment_plan_start_date
+Sys.setlocale("LC_TIME", "English_United States")
+acc$payment_plan_start_date <- as.Date(paste("01-",acc$payment_plan_start_date, sep = ""),format = c("%d-%b-%Y"))
+
+# conversion en character de title
+acc$title <- as.character(acc$title)
+
+summary(acc)
+
+# nettoyage de rej
+summary(rej)
+sapply(rej, class)
+
+# conversion en date de la variale payment_plan_start_date
+Sys.setlocale("LC_TIME", "English_United States")
+rej$payment_plan_start_date <- as.Date(as.character(rej$payment_plan_start_date))
+
+# conversion en character de title
+rej$title <- as.character(rej$title)
+
+summary(rej)
+
+
+# fusion des 2 sets
+all <- rbind(acc, rej)
+
+# conversion en factor de kind et policy_code
+all$kind <- as.factor(all$kind)
+all$policy_code <- as.factor(all$policy_code)
+
+
+# nettoyade des types des variables
+sapply(all, class)
+
+summary(all)
+
+acc.lines <- which(all$kind == "ACCEPTED")
+rej.lines <- which(all$kind == "REJECTED")
+
+# la date n'est pas exploitable
+par(mfrow = c(1,2))
+plot(table(all[acc.lines,"payment_plan_start_date"]))
+plot(table(all[rej.lines,"payment_plan_start_date"]))
+
+
+summary(all[acc.lines,"payment_plan_start_date"])
+summary(all[rej.lines,"payment_plan_start_date"])
+
+# la variable policy_code n'est pas exploitable
+par(mfrow = c(1,2))
+summary(all[acc.lines,"policy_code"])
+summary(all[rej.lines,"policy_code"])
+
+# la variable title pourrait mais en faisant de l'analyse de texte
+par(mfrow=c(3,1))
+boxplot(all[acc.lines,"funded_amnt"],all[rej.lines,"funded_amnt"],all[,"funded_amnt"], names = c("ACCEPTED", "REJECTED", "ALL"))
+boxplot(all[acc.lines,"fico"],all[rej.lines,"fico"],all[,"fico"], names = c("ACCEPTED", "REJECTED", "ALL"))
+boxplot(all[acc.lines,"dti"],all[rej.lines,"dti"],all[,"dti"], names = c("ACCEPTED", "REJECTED", "ALL"))
+
+
+t <- table(all[,c("kind","addr_state")])
+barplot(t, col = c("green", "red"), beside = TRUE)
+
+t <- table(all[,c("kind","zip_code")])
+barplot(t, col = c("green", "red"), beside = TRUE)
+
+t <- table(all[,c("kind","emp_length")])
+barplot(t, col = c("green", "red"), beside = TRUE)
+
+
+
+# définition finale des variables qu'on garde
+common.header <- c("funded_amnt",
+                   "fico",
+                   "dti",
+                   "zip_code",
+                   "addr_state",
+                   "emp_length",
+                   "kind")
+
+
+all <- all[,common.header]
+
+set.seed(27)
+train.id <- sample(seq(1:nrow(all)), size = nrow(all)*0.9)
+
+all.train <- all[train.id,]
+all.test <- all[-train.id,]
+
+head(all.train)
+
+dim(all.test)
+
+library(rpart)
+
+m <- rpart(kind ~ . , data = all.train)
+
+library(visNetwork)
+
+visTree(m)
+
+
+plot(m, branch = 0.2, compress = T, margin = 0.1, main = "Arbre")
+text(m, fancy = F, use.n = T, pretty = 0, all = T, cex = 0.8) 
+
+plotcp(m)
+
+printcp(m)
+
+pred <- predict(m, newdata = all.test, type = "class")
+
+tab_contingence <- table(all.test$kind, pred)
+
+tx_mauvais_classement <- sum(pred!=all.test$kind)/nrow(all.test)
+
+# taux de mauvais classement
+tx_mauvais_classement
+
+```
