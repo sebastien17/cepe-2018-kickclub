@@ -1,0 +1,92 @@
+---
+title: "Lending Club 2"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+
+
+
+```{r}
+
+
+loan <- read.csv("loan.csv", header = TRUE, sep = ",", dec = ".")
+
+# fonction qui permet de trier grossierement par type et prend un ?chantillon
+sample_data <- function(data, nsample = NULL, kind = NULL, na = 0){
+  if(!is.null(nsample)){
+    # on prend un ?chantillon
+    df <- data[sample(1:nrow(data), nsample),]
+  } else {
+    df <- data
+  }
+  
+  if(na > 0){
+    # on cherche les colonnes o? il y a des NA
+    n_na <- !as.logical(sapply(acc.sample.num, function(x) max(c(sum(is.na(x)))-na*nrow(acc.sample.num),0)))
+    n_na
+    df <- df[,which(n_na)]
+  }
+  
+  if(!is.null(kind)){
+    # on d?finit les classes des colonnes
+    col_class <- sapply(df, class)
+    # on filtre sur les classes qu'on veut
+    class_filter <- which(col_class %in% kind)
+    return(df[,class_filter])
+  } else {
+    return(df)
+  }
+}
+
+loan.num <- sample_data(loan, kind = c("numeric", "integer"))
+loan.mod <- sample_data(loan, kind = c("factor"))
+
+# je refais un trie sur les types par rapport à ce qui remonte en factor
+# character
+char <- c("emp_title", "url", "zip_code", "purpose", "addr_state", "title", "desc")
+
+# date
+dt <- c("issue_d", "earliest_cr_line", "last_pymnt_d", "next_pymnt_d", "last_credit_pull_d")
+
+col_char <- which(colnames(loan.mod) %in% char)
+loan.mod <- loan.mod[, -col_char]
+
+col_dt <- which(colnames(loan.mod) %in% dt)
+loan.mod <- loan.mod[, -col_dt]
+
+# factor
+# mod <- c("term","grade","sub_grade","emp_length","home_ownership","verification_status","loan_status","pymnt_plan","initial_list_status","application_type")
+mod <- colnames(loan.mod)
+
+# affichage des factor pour voir
+for(i in 1:length(mod)){
+  barplot(table(loan.mod[i]), main = colnames(loan.mod[i]))
+}
+
+plot_number <- dim(loan.num)[2]
+count <- 1
+box_nb <- 1
+
+par(mfrow = c(1,1))
+while (count < plot_number) {
+  beg <- count
+  if(count+box_nb > plot_number){
+    end <- plot_number   
+  } else {
+    end <- count+box_nb
+  }
+  boxplot(scale(loan.num[beg:end]), ylim = c(-5,5))
+  count <- count + box_nb + 1
+}
+
+# exclusion des données numériques difficilement exploitables
+excl_num <- c("id","member_id","delinq_2yrs","pub_rec","total_rec_late_fee","recoveries","collection_recovery_fee","last_payment_amnt","collections_12_mths_ex_med","policy_code","acc_now_delinq","tot_coll_amt")
+
+summary(loan.mod[,excl_num])
+
+
+
+```
