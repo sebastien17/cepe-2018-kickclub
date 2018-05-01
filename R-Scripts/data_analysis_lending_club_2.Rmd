@@ -11,61 +11,53 @@ output:
 
 ```{r}
 
-
 loan <- read.csv("loan.csv", header = TRUE, sep = ",", dec = ".")
 
-# fonction qui permet de trier grossierement par type et prend un ?chantillon
-sample_data <- function(data, nsample = NULL, kind = NULL, na = 0){
-  if(!is.null(nsample)){
-    # on prend un ?chantillon
-    df <- data[sample(1:nrow(data), nsample),]
-  } else {
-    df <- data
-  }
+# histoire de vérouiller les typages
+# char
+char <- c("emp_title","url","title","desc")
+
+# num
+num <- c("inq_last_12m","total_cu_tl","inq_fi","total_rev_hi_lim","all_util","max_bal_bc","open_rv_24m","open_rv_12m","il_util","total_bal_il","mths_since_rcnt_il","open_il_24m","open_il_12m","open_il_6m","open_acc_6m","tot_cur_bal","dti_joint","annual_inc_joint","mths_since_last_major_derog","loan_amnt","funded_amnt","funded_amnt_inv","int_rate","installment","annual_inc","dti","inq_last_6mths","mths_since_last_delinq","mths_since_last_record","open_acc","revol_bal","revol_util","total_acc","out_prncp","out_prncp_inv","total_pymnt","total_pymnt_inv","total_rec_prncp","total_rec_int")
+
+# date as factor
+dt <- c("issue_d","earliest_cr_line","last_pymnt_d","next_pymnt_d","last_credit_pull_d")
+
+# mod
+mod <- c("verification_status_joint","term","grade","sub_grade","emp_length","home_ownership","verification_status","loan_status","pymnt_plan","purpose","zip_code","addr_state","initial_list_status","application_type")
+
+# excluded
+excl <- c("id","member_id","delinq_2yrs","pub_rec","total_rec_late_fee","recoveries","collection_recovery_fee","last_pymnt_amnt","collections_12_mths_ex_med","policy_code","acc_now_delinq","tot_coll_amt")
+
+# clean des dates pour les remplacer par des factor ordonnés
+# fonction qui transforme le factor en char pour ajouter le jour, convertir en date, ordonner et remettre en factor
+period_factor <- function(x){
+  # convertir en char
+  x.char <- as.character(x)
   
-  if(na > 0){
-    # on cherche les colonnes o? il y a des NA
-    n_na <- !as.logical(sapply(acc.sample.num, function(x) max(c(sum(is.na(x)))-na*nrow(acc.sample.num),0)))
-    n_na
-    df <- df[,which(n_na)]
-  }
+  # ajouter un jour pour que ça soit ensuite reconnu comme date
+  x.char <- paste("01-", x.char, sep = "")
   
-  if(!is.null(kind)){
-    # on d?finit les classes des colonnes
-    col_class <- sapply(df, class)
-    # on filtre sur les classes qu'on veut
-    class_filter <- which(col_class %in% kind)
-    return(df[,class_filter])
-  } else {
-    return(df)
-  }
+  # convertir en date
+  Sys.setlocale("LC_TIME", "English_United States")
+  x.date <- as.Date(x.char, format = c("%d-%b-%Y"))
+  
+  return(as.factor(x.date))
+  
 }
 
-loan.num <- sample_data(loan, kind = c("numeric", "integer"))
-loan.mod <- sample_data(loan, kind = c("factor"))
+for(col in dt){
+  loan[,col] <- period_factor(loan[,col])
+}
 
-# je refais un trie sur les types par rapport à ce qui remonte en factor
-# character
-char <- c("emp_title", "url", "zip_code", "purpose", "addr_state", "title", "desc")
-
-# date
-dt <- c("issue_d", "earliest_cr_line", "last_pymnt_d", "next_pymnt_d", "last_credit_pull_d")
-
-col_char <- which(colnames(loan.mod) %in% char)
-loan.mod <- loan.mod[, -col_char]
-
-col_dt <- which(colnames(loan.mod) %in% dt)
-loan.mod <- loan.mod[, -col_dt]
-
-# factor
-# mod <- c("term","grade","sub_grade","emp_length","home_ownership","verification_status","loan_status","pymnt_plan","initial_list_status","application_type")
-mod <- colnames(loan.mod)
-
+loan.mod <- loan[,mod]
 # affichage des factor pour voir
 for(i in 1:length(mod)){
   barplot(table(loan.mod[i]), main = colnames(loan.mod[i]))
 }
 
+# affichage des num pour voir
+loan.num <- loan[,num]
 plot_number <- dim(loan.num)[2]
 count <- 1
 box_nb <- 1
@@ -82,10 +74,46 @@ while (count < plot_number) {
   count <- count + box_nb + 1
 }
 
-# exclusion des données numériques difficilement exploitables
-excl_num <- c("id","member_id","delinq_2yrs","pub_rec","total_rec_late_fee","recoveries","collection_recovery_fee","last_payment_amnt","collections_12_mths_ex_med","policy_code","acc_now_delinq","tot_coll_amt")
+# si on veut prédire qui sera en défaut, il faut garder 2 types de loan_status:
+# ceux qui ont payés jusqu'au bout
+paid <- c("Fully Paid")
 
-summary(loan.mod[,excl_num])
+# ceux qui ont été en "faillite"
+not_paid <- c("Charged Off")
+
+# on garde les lignes correspondantes
+loan2 <- loan[loan$loan_status %in% c(paid, not_paid),]
+
+# on transforme le factor de statut pour qu'il ne garde que ceux qu'on veut
+loan2$loan_status <- as.factor(as.character(loan2$loan_status))
+
+# on conserve le nombre dans chaque niveau pour pouvoir ensuite plutôt bosser sur des pourcentages
+nb_not_paid <- nrow(loan2[loan2$loan_status == "Charged Off",])
+nb_paid <- nrow(loan2[loan2$loan_status == "Fully Paid",])
+
+# on trace les barplot pour comparer suivant les niveaux
+# on commence par calculer les tables en divisant par le nombre d'éléments du facteur histoire d'avoir une échelle comparable
+
+# affichage des factor pour voir
+for(i in mod){
+  if(i != "loan_status"){
+    t <- table(loan2[,c("loan_status", i)])
+    t["Charged Off",] <- t["Charged Off",]/nb_not_paid
+    t["Fully Paid",] <- t["Fully Paid",]/nb_paid
+    
+    barplot(t, beside = TRUE, col = c("red","green"), main = i)
+    legend("topright", legend = c("Charged Off", "Fully Paid"), fill = c("red", "green"))
+  }
+}
+
+# affichage des num pour voir
+for(i in num){
+  if(i != "loan_status"){
+    boxplot(scale(loan2[,i])~loan2$loan_status, main = i, ylim = c(-5,5))
+  }
+}
+
+
 
 
 
