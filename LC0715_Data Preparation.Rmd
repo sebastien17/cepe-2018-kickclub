@@ -1,0 +1,23 @@
+---
+title: "Data Preparation"
+output: html_notebook
+---
+
+0.1. Assign 'my_data_df' to 'dta', the dataset we will be using going forward
+
+```{r}
+dta <- my_data_df
+```
+
+
+0.2. Create a new variable: 'issue_y' as the year of 'issue_d' in order to replace it and make it simpler (less levels)
+
+```{r}
+dta <- dta %>% mutate(issue_y = factor(year(issue_d)))
+class(dta[, "issue_y"])
+levels(dta[, "issue_y"])
+```
+
+
+
+
