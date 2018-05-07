@@ -3,7 +3,18 @@ title: "Data Preparation"
 output: html_notebook
 ---
 
+LC0715: 2ème jeu de données Lending Club entre 2007 et 2015
+
+Ce notebook 'Data Preparation' a pour objectif de faire la synthèse des observations de l'analyse exploratoire quant aux choix des données, aux transformations éventuelles et à leur traitement préliminaire. 
+
+Le fichier XLSX 'LC0715_Var_Summary.xlsx' contient la synthèse des variables réalisée à la suite de la 'Data Exploration'.
+
+
 0.1. Assign 'my_data_df' to 'dta', the dataset we will be using going forward
+-----------------------------------------------------------------------------
+'my_data_df' représente le fichier de données avec les 74 variables ni triées, ni sélectionnées.
+Notez que 'issue_d' a déjà été convertie en format Date (cf. Data Exploration)
+'dta' est le df où je propose de réaliser ces opérations
 
 ```{r}
 dta <- my_data_df
@@ -11,12 +22,171 @@ dta <- my_data_df
 
 
 0.2. Create a new variable: 'issue_y' as the year of 'issue_d' in order to replace it and make it simpler (less levels)
+------------------------------------------------------------------------------
+Création d'une nouvelle variable date 'issue_y' contenant uniquement l'année (plutôt que le mois) à la place de 'issue_d'
 
 ```{r}
 dta <- dta %>% mutate(issue_y = factor(year(issue_d)))
 class(dta[, "issue_y"])
 levels(dta[, "issue_y"])
 ```
+
+0.3. Create a new variable 'length_cr_line' representing the duration in days since the earliest credit line
+------------------------------------------------------------------------------
+Création d'une nouvelle variable 'length_cr_line' qui remplacerala date contenue dans 'earliest_cr_line' par une durée pour les besoins de la modélisation
+
+```{r}
+head(dta[,"earliest_cr_line"])
+class(dta[,"earliest_cr_line"])
+end_date <- max(dta[,"issue_d"]) # last date, supposedely the theoretical analysis date 
+dta[ , "earliest_cr_line"] <- lubridate::mdy(dta[ , "earliest_cr_line"])
+dta <- dta %>% mutate(length_cr_line = as.numeric(end_date - earliest_cr_line))
+class(dta[, "length_cr_line"])
+head(dta[, "length_cr_line"])
+```
+
+0.4. Factor variables selection
+-----------------------------------------------------------------------------
+Variables de type 'factor' sélectionnées
+Notez que la variable explicative 'loan_status' se place en première colonne
+
+```{r}
+fac_select <- c("loan_status", "term", "grade", "sub_grade", "emp_length", "home_ownership", "verification_status", 
+                "purpose", "addr_state", "issue_y")
+```
+
+0.5. Numeric Variables Selection
+-----------------------------------------------------------------------------
+Variables de type 'numeric' sélectionnées
+
+```{r}
+num_select <- c("funded_amnt", "int_rate", "dti", "delinq_2yrs", "inq_last_6mths", "mths_since_last_delinq", 
+                "mths_since_last_record", "open_acc", "pub_rec", "revol_util", "total_acc", "mths_since_last_major_derog", 
+                "length_cr_line")
+```
+
+0.6. Full Variables Selection
+----------------------------------------------------------------------------
+
+```{r}
+var_select <- c(fac_select, num_select)
+```
+
+0.7. Create the data subset of desired variables
+----------------------------------------------------------------------------
+Sélection finale contenant variables 'factor' et 'numeric'
+
+```{r}
+dta <- dta[, var_select]
+
+```
+
+0.8. Convert "loan_status" into a cleaned-up, binary variable: "Valid" vs. "Failed"
+----------------------------------------------------------------------------
+La variable explicative est modifiée en mode binaire conformémement aux observations de la 'Data Exploration':
+- les petites modalités sont évincées
+- 'Fully Paid' et 'Current' deviennent 'Valid'
+- 'Charged Off' devient 'Failed'
+
+```{r}
+dta <- dta %>% filter(loan_status == "Fully Paid" | loan_status == "Current" | loan_status == "Charged Off")
+dta <- dta %>% mutate(loan_status = if_else(loan_status == "Fully Paid" | loan_status == "Current", "Valid", "Failed"))
+dta[,"loan_status"] <- factor(dta[,"loan_status"])
+summary(dta$loan_status)
+summary(dta)
+```
+
+0.9. Factor variables treatment
+-----------------------------------------------------------------------------
+
+a - Convert 'home_ownership' factor into a 3 levels factor
+
+```{r}
+dta <- dta %>% filter(home_ownership == "MORTGAGE" | home_ownership == "RENT" | home_ownership == "OWN")
+summary(dta$home_ownership)
+```
+
+b - Filter 'purpose' levels with at least 10 000 observartions
+
+Beaucoup de 'purpose' ont peu de modalités, et sont souvent redontantes. Au dessus de 10000, on se concentre sur une demi douzaine seulement
+Notez: ce filtrage évince env. 75000 observations (près de 10% du total), on pourrait tout aussi bien envisager de supprimer cette variable, ou bien ne pas la filtrer du tout notamment (les arbres devraient être capables de le gérer)
+
+```{r}
+dta <- dta %>% group_by(purpose) %>% filter(n() >= 10000) # approx. 75 000 obs lost or close to 10%!
+```
+
+c - Filter 'addr_state' levels with at least 1000 observartions
+
+3 ou 4 états seulement ont moins de 1000 observations
+
+```{r}
+dta <- dta %>% group_by(addr_state) %>% filter(n() >= 1000) # vey limited obs. loss (<1000)
+
+```
+
+0.10. Numeric Variables Treatment
+-----------------------------------------------------------------------------
+
+a - Numeric Variables Treatment 1
+
+Nettoyage des variables 'numeric' : NAs, et seuils (cf. 'Data Exploration')
+
+```{r}
+dta <- filter(dta, dta[,"dti"] != 9999, dta[,"dti"] < 40)
+dta <- as.data.frame(dta) # cannot tell why but we need to convert back to data.frame
+dta <- filter(dta, !is.na(dta[,"delinq_2yrs"]))
+dta <- filter(dta, !is.na(dta[,"inq_last_6mths"]))
+dta <- filter(dta, !is.na(dta[,"open_acc"]))
+dta <- filter(dta, !is.na(dta[,"revol_util"]), dta[,"revol_util"] < 250)
+dta <- filter(dta, !is.na(dta[,"total_acc"]), dta[,"total_acc"] < 75)
+```
+
+b - Numeric Variables Treatment 2
+
+Conversion de certaines variables 'numeric' en 'factor'
+
+```{r}
+dta[ , "mths_since_last_delinq"] <- cut(dta[ , "mths_since_last_delinq"], 
+                                        breaks = c(0, 12, 24, 36, 60, Inf), 
+                                        labels = c("less_than_12m", "less_than_24m", "less_than_36m","less_than_60m", "more_than_60m"))
+
+dta[ , "mths_since_last_record"] <- cut(dta[ , "mths_since_last_record"], 
+                                        breaks = c(0, 12, 24, 36, 60, Inf), 
+                                        labels = c("less_than_12m", "less_than_24m", "less_than_36m","less_than_60m", "more_than_60m"))
+
+dta[ , "pub_rec"] <- cut(dta[ , "pub_rec"], 
+                         breaks = c(0, 1, 2, 3, 4,5, Inf), 
+                         labels = c("zero", "one", "two","three", "four", "five and more"),
+                         right = FALSE)
+
+dta[ , "mths_since_last_major_derog"] <- cut(dta[ , "mths_since_last_major_derog"], 
+                                             breaks = c(0, 25, 50, 75, Inf), 
+                                             labels = c("less_than_25m", "less_than_50m", "less_than_75m","more_than_75m"),
+                                             right = FALSE)
+```
+
+Conversion effective en 'factor' class
+
+```{r}
+convert_list <- c("mths_since_last_delinq", "mths_since_last_record", "pub_rec", "mths_since_last_major_derog")
+summary(dta[, convert_list])
+lapply(dta[, convert_list], class)
+lapply(dta[, convert_list], levels)
+rm(convert_list)
+```
+
+0.11. Check Factor variables selected
+-----------------------------------------------------------------------------
+
+Au final, on obtient env. 809000 observations et 23 variables (vs. 887000 observations et 74 variables au départ)
+
+```{r}
+str(dta)
+summary(dta)
+```
+
+
+Le dataframe 'dta' devrait enfin être prêt pour procéder aux différentes techniques de modélisation.
 
 
 
