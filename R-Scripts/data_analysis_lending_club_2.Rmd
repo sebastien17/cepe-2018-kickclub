@@ -1,36 +1,24 @@
 ---
 title: "Lending Club 2"
 output:
-  html_document:
-    df_print: paged
+  pdf_document: default
 ---
 
-
-
-
-
+# Nettoyage des données
+Load du fichier
 ```{r}
-
 loan <- read.csv("loan.csv", header = TRUE, sep = ",", dec = ".")
+```
 
-# histoire de vérouiller les typages
-# char
-char <- c("emp_title","url","title","desc")
 
-# num
-num <- c("inq_last_12m","total_cu_tl","inq_fi","total_rev_hi_lim","all_util","max_bal_bc","open_rv_24m","open_rv_12m","il_util","total_bal_il","mths_since_rcnt_il","open_il_24m","open_il_12m","open_il_6m","open_acc_6m","tot_cur_bal","dti_joint","annual_inc_joint","mths_since_last_major_derog","loan_amnt","funded_amnt","funded_amnt_inv","int_rate","installment","annual_inc","dti","inq_last_6mths","mths_since_last_delinq","mths_since_last_record","open_acc","revol_bal","revol_util","total_acc","out_prncp","out_prncp_inv","total_pymnt","total_pymnt_inv","total_rec_prncp","total_rec_int")
-
-# date as factor
-dt <- c("issue_d","earliest_cr_line","last_pymnt_d","next_pymnt_d","last_credit_pull_d")
-
-# mod
-mod <- c("verification_status_joint","term","grade","sub_grade","emp_length","home_ownership","verification_status","loan_status","pymnt_plan","purpose","zip_code","addr_state","initial_list_status","application_type")
-
-# excluded
-excl <- c("id","member_id","delinq_2yrs","pub_rec","total_rec_late_fee","recoveries","collection_recovery_fee","last_pymnt_amnt","collections_12_mths_ex_med","policy_code","acc_now_delinq","tot_coll_amt")
-
+Les facteurs contenant des dates sont ordonnés
+```{r}
 # clean des dates pour les remplacer par des factor ordonnés
 # fonction qui transforme le factor en char pour ajouter le jour, convertir en date, ordonner et remettre en factor
+
+# date définie comme facteur
+dt <- c("issue_d","earliest_cr_line","last_pymnt_d","next_pymnt_d","last_credit_pull_d")
+
 period_factor <- function(x){
   # convertir en char
   x.char <- as.character(x)
@@ -49,14 +37,38 @@ period_factor <- function(x){
 for(col in dt){
   loan[,col] <- period_factor(loan[,col])
 }
+```
 
+Les faux facteurs sont reconvertis en caractères
+```{r}
+# chaîne de caractères
+char <- c("emp_title","url","title","desc")
+
+for(col in char){
+  loan[, col] <- as.character(loan[, col])
+}
+
+```
+
+On définit la liste des class
+```{r}
+loan.class <- sapply(loan, class)
+
+```
+
+
+Affichage des facteurs
+```{r}
+mod <- which(loan.class == "factor")
 loan.mod <- loan[,mod]
-# affichage des factor pour voir
 for(i in 1:length(mod)){
   barplot(table(loan.mod[i]), main = colnames(loan.mod[i]))
 }
+```
 
-# affichage des num pour voir
+Affichage des variables numériques
+```{r}
+num <- which(loan.class %in% c("integer","numeric"))
 loan.num <- loan[,num]
 plot_number <- dim(loan.num)[2]
 count <- 1
@@ -73,8 +85,11 @@ while (count < plot_number) {
   boxplot(scale(loan.num[beg:end]), ylim = c(-5,5))
   count <- count + box_nb + 1
 }
+```
 
-# si on veut prédire qui sera en défaut, il faut garder 2 types de loan_status:
+On peut garder 2 types de loan status.
+Ceux en cours sont enlevés car par d'information sur la finalité.
+```{r}
 # ceux qui ont payés jusqu'au bout
 paid <- c("Fully Paid")
 
@@ -86,18 +101,110 @@ loan2 <- loan[loan$loan_status %in% c(paid, not_paid),]
 
 # on transforme le factor de statut pour qu'il ne garde que ceux qu'on veut
 loan2$loan_status <- as.factor(as.character(loan2$loan_status))
+```
 
+On vérifie le taux de NA en fonction de la modalité
+```{r}
+# fonction permettant de calculer le taux de NA
+NA_rate <- function(x){
+  isna <- sapply(x, is.na)
+  return(round(length(isna[isna == TRUE])/length(isna)*100, 2))
+}
+
+res <- cbind(
+  sapply(colnames(loan2), function(x) NA_rate(loan2[loan2$loan_status == "Charged Off",][x])),
+  sapply(colnames(loan2), function(x) NA_rate(loan2[loan2$loan_status == "Fully Paid",][x])),
+  sapply(colnames(loan2), function(x) class(loan2[,x]))
+)
+
+colnames(res) <- c("Charged Off", "Fully Paid", "class")
+
+res
+
+```
+
+On commence par exclure les variables qui sont visiblement non significatives
+
+Variables techniques:
+```{r}
+excl_tech <- c("id","member_id")
+excl_tech
+```
+Variables de type character:
+```{r}
+excl_char <- rownames(res[which(res[,"class"] == "character"),])
+excl_char
+```
+
+Variables au taux de NA > 90%:
+```{r}
+excl_na <- rownames(res[which(as.numeric(res[,"Charged Off"]) > 90),])
+excl_na
+```
+
+Remplacement des NA pour les variables non temporelles pour lesquelles on peut:
+
+* mths_since_last_delinq: 0
+* mths_since_last_record: 0
+* mths_since_last_major_derog: 0
+
+```{r}
+r_mths_since_last_delinq <- which(is.na(loan2$mths_since_last_delinq))
+loan2[r_mths_since_last_delinq, "mths_since_last_delinq"] <- 0
+
+r_mths_since_last_record <- which(is.na(loan2$mths_since_last_record))
+loan2[r_mths_since_last_record, "mths_since_last_record"] <- 0
+
+r_mths_since_last_major_derog <- which(is.na(loan2$mths_since_last_major_derog))
+loan2[r_mths_since_last_major_derog, "mths_since_last_major_derog"] <- 0
+```
+
+Pas d'idée pour les remplacements des NA
+* collections_12_mths_ex_med
+* tot_coll_amt
+* tot_cur_bal 
+* total_rev_hi_lim
+* revol_util
+
+```{r}
+excl_other <- c("collections_12_mths_ex_med",
+                "tot_coll_amt",
+                "tot_cur_bal",
+                "total_rev_hi_lim",
+                "revol_util")
+excl_other
+```
+
+On fait une première exclusion de variable.
+Les dates sont également exclues. Dans un premier temps, on ne considère pas l'aspect temporel.
+```{r}
+excl <- c(excl_tech, excl_na, excl_other, dt, excl_char)
+col_to_exclude <- which(colnames(loan2) %in% excl)
+
+loan3 <- loan2[, -col_to_exclude]
+```
+
+On définit la liste des class
+```{r}
+loan3.class <- sapply(loan3, class)
+
+```
+
+On affiche les facteurs en fonction de la modalité afin de voir s'il y a des différences significatives
+```{r}
 # on conserve le nombre dans chaque niveau pour pouvoir ensuite plutôt bosser sur des pourcentages
-nb_not_paid <- nrow(loan2[loan2$loan_status == "Charged Off",])
-nb_paid <- nrow(loan2[loan2$loan_status == "Fully Paid",])
+nb_not_paid <- nrow(loan3[loan3$loan_status == "Charged Off",])
+nb_paid <- nrow(loan3[loan3$loan_status == "Fully Paid",])
 
 # on trace les barplot pour comparer suivant les niveaux
 # on commence par calculer les tables en divisant par le nombre d'éléments du facteur histoire d'avoir une échelle comparable
 
 # affichage des factor pour voir
+mod <- names(which(loan3.class == "factor"))
+
 for(i in mod){
   if(i != "loan_status"){
-    t <- table(loan2[,c("loan_status", i)])
+    t <- table(loan3[,c("loan_status", i)])
     t["Charged Off",] <- t["Charged Off",]/nb_not_paid
     t["Fully Paid",] <- t["Fully Paid",]/nb_paid
     
@@ -105,16 +212,65 @@ for(i in mod){
     legend("topright", legend = c("Charged Off", "Fully Paid"), fill = c("red", "green"))
   }
 }
+```
 
+On affiche les numeric en fonction de la modalité afin de voir s'il y a des différences significatives
+```{r}
 # affichage des num pour voir
+num <- which(loan3.class %in% c("integer","numeric"))
 for(i in num){
   if(i != "loan_status"){
-    boxplot(scale(loan2[,i])~loan2$loan_status, main = i, ylim = c(-5,5))
+    boxplot(scale(loan3[,i])~loan3$loan_status, main = colnames(loan3[i]), ylim = c(-5,5))
   }
 }
+```
 
+Choix des variables à utiliser en regardant les graphes mettant côte à côte les 2 modalités Charged Off / FUlly Paid
 
+* zip_code
+* addr_state
+* total_pymnt
+* total_pymnt_inv
+* total_rec_prncp
+* total_rec_int
+* total_rec_late_fee
+* recoveries
+* collection_recovery_fee
+* out_prncp
+* out_prncp_inv
+* last_pymnt_amnt
+* policy_code
 
+```{r}
+excl_other2 <- c("zip_code",
+                 "addr_state",
+                 "total_pymnt",
+                 "total_pymnt_inv",
+                 "total_rec_prncp",
+                 "total_rec_int",
+                 "total_rec_late_fee",
+                 "recoveries",
+                 "collection_recovery_fee",
+                 "out_prncp",
+                 "out_prncp_inv",
+                 "last_pymnt_amnt",
+                 "policy_code",
+                 "application_type",
+                 "pymnt_plan",
+                 "application_type",
+                 "verification_status_joint")
 
+col_to_exclude <- which(colnames(loan3) %in% excl_other2)
+
+loan4 <- loan3[, -col_to_exclude]
+
+summary(loan4)
 
 ```
+
+
+
+
+
+
+
