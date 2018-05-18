@@ -1,0 +1,451 @@
+---
+title: "LC_Modeling.RMD"
+output:
+  word_document: default
+  html_notebook: default
+---
+
+# Chargement des donnees nettoyees
+
+```{r}
+dirpath <- "C:/Users/Eric/Documents/Eric/Pro/Transition/Formation/CEPE ENSAE ENSAI Certificat Data Scientist/INTENSIVE/PROJETS/KickClub Project"
+dirpath2 <- "Lending Club/LC0715"
+filename <- "loan5.RDS"
+my_file <- paste(dirpath, dirpath2, filename, sep = "/")
+my_file
+dta <- readRDS(my_file)
+```
+
+# Menu des modélisations
+1) Logistic Regression
+2) LDA Linear Discriminant Analysis
+3) QDA Quadratic Discriminant Analysis
+4) KNN
+5) Classification Trees
+6) Random Forests
+
+
+# 1. Logistic Regression
+============================================
+
+# Extension de la matrice de confusion: Creer une fonction 'Table.Ratio' qui calcule les % de reussite par ligne et par colonne
+Table.Ratio creates a matrix that expands the standard table with % of correctly predicted vs. actual observations for each row and each column
+```{r}
+Table.Ratio <- function(predicted, actual){
+  table.res <- as.matrix(table(predicted, actual))
+    r1 <- table.res[1,1] / (table.res[1,1] + table.res[1,2])
+    r2 <- table.res[2,2] / (table.res[2,1] + table.res[2,2])
+    tot <- (table.res[1,1] + table.res[2,2]) / (table.res[1,1] + table.res[1,2] + table.res[2,1] + table.res[2,2])
+    c1 <- table.res[1,1] / (table.res[1,1] + table.res[2,1])
+    c2 <- table.res[2,2] / (table.res[1,2] + table.res[2,2])
+    newrow <- c(c1, c2)
+    newcol <- c(r1, r2, tot)
+  table.res <- rbind(table.res, col_ratio = newrow)
+  table.res <- cbind(table.res, row_ratio = newcol)
+  table.res <- round(table.res,2)
+  # rm(r1, r2, tot, c1, c2, newrow, newcol)
+  return(table.res)
+}
+```
+
+# Selection aleatoire d'un echantillon de test (In-Sample random 'train' subset)
+In-Sample: 80% des observations
+
+```{r}
+train <- sample(dim(dta)[1], size = 0.8 * dim(dta)[1], replace = FALSE)
+```
+
+# Faire tourner la regression loogistique
+
+```{r}
+glm.fit <- glm(loan_status ~ . , data = dta[train,], family = binomial)
+```
+
+# Interpretation de regression logistique 
+Comment sont alloues les resultats: 
+```{r}
+contrasts(dta$loan_status)
+```
+
+# Resultats Out-Of-Sample
+
+Previsions de Probabilites issues de la regression logistique sur l'echantillon de validation
+
+```{r}
+glm.probs <- predict(glm.fit, newdata = dta[-train,], type = "response")
+```
+
+Creation d'un vecteur de previsions selon le niveau de probabilite
+
+```{r}
+glm.pred <- rep("Valid", dim(dta[-train,])[1]) # initialisation
+glm.pred[glm.probs < quantile(glm.probs, probs = 0.5)] <- "Failed" # le seuil est fixe au niveau du 50eme percentile des previsions
+```
+
+Matrice de Confusion etendue: previsions en lignes (Failed et Valid) et realises en colonnes (Charged Off et Fully Paid)
+
+```{r}
+Table.Ratio(glm.pred, dta[-train,]$loan_status)
+```
+
+# Creation d'une fonction Run.n.random.logreg 
+- Pour realiser 'n' regressions logistiques 
+- Sur le dataset 'dta'
+- Et sur le subset in-sample 'train'
+- Et, qui renvoie la pertinence globale de la matrice de confusion des previsions
+ 
+```{r}
+Run.n.random.logreg <- function(n = 2, dta, insample_prop = 0.8) {
+  res <- matrix(, nrow = n, ncol = 1)
+  for (i in 1:n) {
+    train <- sample(dim(dta)[1], size = insample_prop * dim(dta)[1], replace = FALSE)
+    glm.fit <- glm(loan_status ~ . , data = dta[train,], family = binomial)
+    glm.probs <- predict(glm.fit, newdata = dta[-train,], type = "response")
+    glm.pred <- rep("Valid", dim(dta[-train,])[1])
+    glm.pred[glm.probs < quantile(glm.probs, probs = 0.5)] <- "Failed"
+    res[i,1]  <-  Table.Ratio(glm.pred, dta[-train,]$loan_status)[3,3]
+  }
+  return(res)  
+}
+```
+
+# Application: n = 20 regressions logistiques, insample_prop = 80%
+Attention: cela prend un peu de temps avec 20 regressions logistiques (envisager le calcul parallele!?)
+
+```{r}
+Run.n.random.logreg(n = 20, dta, insample_prop = 0.8)
+```
+
+
+# Nettoyage de l'environnement
+
+```{r}
+rm(glm.fit, glm.probs, glm.pred, train)
+```
+
+
+# 2. Linear Discriminant Analysis - LDA
+============================================
+
+# Librairie 'MASS'
+
+```{r}
+library(MASS)
+```
+
+# Selection aleatoire d'un echantillon de test (In-Sample random 'train' subset)
+In-Sample: 80% des observations
+
+```{r}
+train <- sample(dim(dta)[1], size = 0.8 * dim(dta)[1], replace = FALSE)
+```
+
+# Faire tourner une LDA Run LDA sur l'echantillon test ('train')
+
+```{r}
+lda.fit <- lda(loan_status ~ . , data = dta, subset = train) # In lda.default(x, grouping, ...) : les variables sont collinéaires
+```
+
+# Generer les previsions de probabilites du modele LDA sur l'echantillon de validation
+
+```{r}
+lda.pred <- predict(lda.fit, dta[-train,])
+names(lda.pred)
+```
+
+# 'posterior' contient les previsions de probabilites generees par le modele LDA
+
+```{r}
+mean(lda.pred$posterior) # la prevision moyenne est de 50% comme attendu
+summary(lda.pred$posterior)
+```
+
+La prevision moyenne et mediane du pret 'Charged Off' est 17.9% et 14.2%
+Inversement pour les prets 'Fully Paid': 82.1% et 85.8%
+Attention: ces moyennes et medianes varient en fonction de l'echantillon aleatoire
+Conclusion: il faut adapter le seuil d'allocation. Un seuil de 50% prevoirait trop de defaut!
+
+# 'class' contient l'allocation standard des previsions par modalite au seuil de proababilite de base de 50%
+
+```{r}
+lda.class <- lda.pred$class
+lda.class[1:30] # jetez un oeil aux previsions au seuil standard de 50%
+```
+
+Il y a tres peu de previsions de 'Charged Off' au seuil de 50% de probabilite
+
+# Creation d'une matrice de confusion: previsions vs. realisations
+
+```{r}
+table(lda.class, dta[-train,]$loan_status)
+```
+
+
+Et sa version etendue avec les % en utilisant Table.Ratio() creee auparavant
+
+```{r}
+Table.Ratio(lda.class, dta[-train,]$loan_status)
+```
+
+Cela peut paraitre eleve au global (~82%), mais ce resultat est decevant:
+- seuls 8% des 'Charged Off' sont predit 'Charge Off' par le modele
+- seuls 50% des predictions de 'Charge Off' sont effectivement 'Charged Off'
+
+
+# Creer une fonction qui ajuste le seuil de probabilite et genere une matrice de confusion
+Notez: la LDA est deja realisee. Il s'agit de moduler le seuil d'allocation des previsions
+
+```{r}
+Confusion.Table <- function(actual, predicted, proba.threshold){
+# actual: the actual observed dataset
+# lda.pred: the predicted probabilities based on LDA model
+# proba.threshold: the threshold used to assign probabilities to each outcome
+  actual.Failed_pred <- actual[predicted > proba.threshold]
+  actual.Valid_pred <- actual[predicted <= proba.threshold]
+  Confusion.Table <- matrix(1:9, nrow = 3)
+    Confusion.Table[1,1] <- table(actual.Failed_pred)[1]
+    Confusion.Table[1,2] <- table(actual.Failed_pred)[2]
+    Confusion.Table[2,1] <- table(actual.Valid_pred)[1]
+    Confusion.Table[2,2] <- table(actual.Valid_pred)[2]
+  colnames(Confusion.Table) <- c("Actual.Failed", "Actual.Valid", "Accuracy")
+  rownames(Confusion.Table) <- c("Pred.Failed", "Pred.Valid", "Accuracy")
+    Confusion.Table[1,3] <- Confusion.Table[1,1] / (Confusion.Table[1,1] + Confusion.Table[1,2])
+    Confusion.Table[2,3] <- Confusion.Table[2,2] / (Confusion.Table[2,1] + Confusion.Table[2,2])
+    Confusion.Table[3,1] <- Confusion.Table[1,1] / (Confusion.Table[1,1] + Confusion.Table[2,1])
+    Confusion.Table[3,2] <- Confusion.Table[2,2] / (Confusion.Table[1,2] + Confusion.Table[2,2])
+    Confusion.Table[3,3] <- (Confusion.Table[1,1] + Confusion.Table[2,2]) / sum(Confusion.Table[1:2, 1:2])
+  return(Confusion.Table)
+}
+```
+
+Mise en application pas à pas
+
+Mise en oeuvre de la fonction : etape par etape (indirecte): on prend soin de definir les parametre un a un
+
+```{r}
+actual <- dta[-train, "loan_status"] # actual status over the 'train' subset
+pred <- lda.pred$posterior[,1] # predicted probabilities (1st column = 'Failed') from LDA model
+proba.threshold <- mean(pred) # average predicted probability instead of 50% probability threshold
+Confusion.Table(actual, pred, proba.threshold)
+round(Confusion.Table(actual, pred, proba.threshold),2)
+```
+
+Mise ne oeuvre directe: les parametres sont definis a l'interieur au risque d'etre moins visible
+
+```{r}
+round(Confusion.Table(dta[-train, "loan_status"], lda.pred$posterior[,1], mean(lda.pred$posterior[,1])),2)
+```
+
+Commentaire:
+- le niveau global de prevision s'est deteriore (67%)
+- mais la qualite de prevision des defauts effectifs s'est fortement ameliore: on prevoit mieux les vrais defauts (62%)
+- et les previsions de defauts ont acrru en nombre mais ont perdu en qualite predictive (30%)
+
+Nettoyage 
+
+```{r}
+rm(train, lda.class, lda.pred, lda.fit)
+```
+
+# Creation d'une fonction Run.n.random.ldareg
+- Pour realiser 'n' regressions lineaires discriminantes 
+- Sur le dataset 'dta'
+- Et sur le subset in-sample 'train' de proportion 'insample_prop'
+- Et, qui renvoie la pertinence globale de la matrice de confusion des previsions
+ 
+```{r}
+Run.n.random.ldareg <- function(n = 2, dta, insample_prop = 0.8, threshold = c("mean", "median", "50%")) {
+  res <- matrix(, nrow = n, ncol = 5)
+  for (i in 1:n) {
+    train <- sample(dim(dta)[1], size = insample_prop * dim(dta)[1], replace = FALSE)
+    lda.fit <- lda(loan_status ~ . , data = dta, subset = train)
+    lda.pred <- predict(lda.fit, dta[-train,])
+    lda.class <- lda.pred$class
+    
+    actual <- dta[-train, "loan_status"] # actual status over the 'train' subset
+    pred <- lda.pred$posterior[,1] # predicted probabilities (1st column = 'Failed') from LDA model
+    proba.threshold <- switch(threshold,
+                       "mean" = mean(pred), # average predicted probability
+                       "median" = median(pred), # median predicted probability
+                       "50%" = 0.5) # 50% probability
+    Confusion.Table(actual, pred, proba.threshold)
+    res[i,1]  <-  round(Confusion.Table(actual, pred, proba.threshold)[3,3],2)
+    res[i,2]  <-  round(Confusion.Table(actual, pred, proba.threshold)[3,1],2)
+    res[i,3]  <-  round(Confusion.Table(actual, pred, proba.threshold)[1,3],2)
+    res[i,4]  <-  round(Confusion.Table(actual, pred, proba.threshold)[3,2],2)
+    res[i,5]  <-  round(Confusion.Table(actual, pred, proba.threshold)[2,3],2)
+    colnames(res) <- c("Global", "Actual.Failed", "Pred.Failed", "Actual.Valid", "Pred.Valid")
+   
+  }
+  return(res)  
+}
+```
+
+# Application: n = 10 regressions lineaires discriminantes, insample_prop = 80%, threshold = "mean"
+Attention: cela prend un peu de temps avec 10 regressions logistiques (envisager le calcul parallele!?)
+
+```{r}
+Run.n.random.ldareg(n = 10, dta, insample_prop = 0.8, threshold = "mean")
+```
+
+# Nettoyage de l'environnement
+
+```{r}
+rm(lda.fit, lda.pred, lda.class, train, pred, proba.threshold)
+```
+
+
+# 3. Quadratic Discriminant Analysis - QDA
+============================================
+
+# Librairie 'MASS'
+
+```{r}
+library(MASS)
+library(dplyr)
+```
+
+# Selection aleatoire d'un echantillon de test (In-Sample random 'train' subset)
+In-Sample: 80% des observations
+
+```{r}
+train <- sample(dim(dta)[1], size = 0.8 * dim(dta)[1], replace = FALSE)
+```
+
+# Exclusion additionnelle de variables qui font planter la QDA
+
+```{r}
+# identification des variables problematiques: qui font planter la QDA: "groupe Charged Off n'est pas de rang plein"
+dta_m <- dta %>% dplyr::select( c( names(dta)[1:6], names(dta)[8:12], names(dta)[14:25] ) )
+
+# Exclusion de ces variables: creation d'un subset 'dta_m' à utiliser pour la suite de la QDA
+dta_m <- dta %>% dplyr::select(-c(sub_grade, addr_state))
+```
+
+# Faire tourner une QDA sur l'echantillon test ('train')
+
+```{r}
+qda.fit <- qda(loan_status ~ . , data = dta_m, subset = train) # In lda.default(x, grouping, ...) : les variables sont collinéaires
+```
+
+# Generer les previsions de probabilites du modele QDA sur l'echantillon de validation
+
+```{r}
+qda.pred <- predict(qda.fit, dta_m[-train,])
+names(qda.pred)
+```
+
+# 'posterior' contient les previsions de probabilites generees par le modele QDA
+
+```{r}
+mean(qda.pred$posterior) # la prevision moyenne est de 50% comme attendu
+summary(qda.pred$posterior)
+```
+
+La prevision moyenne et mediane du pret 'Charged Off' est 23.7% et 4.6%
+Inversement pour les prets 'Fully Paid': 76.3% et 95.4%
+Attention: ces moyennes et medianes varient en fonction de l'echantillon aleatoire
+Conclusion: il faut adapter le seuil d'allocation. Un seuil de 50% prevoirait trop de defaut!
+
+# 'class' contient l'allocation standard des previsions par modalite au seuil de probabilite de base de 50%
+
+```{r}
+qda.class <- qda.pred$class
+qda.class[1:20] # jetez un oeil aux previsions au seuil standard de 50%
+```
+
+Il y a tres peu de previsions de 'Charged Off' au seuil de 50% de probabilite
+
+# Creation d'une matrice de confusion: previsions vs. realisations
+
+```{r}
+table(qda.class, dta_m[-train,]$loan_status)
+```
+
+Et sa version etendue avec les % en utilisant Table.Ratio() creee auparavant
+
+```{r}
+Table.Ratio(qda.class, dta_m[-train,]$loan_status)
+```
+
+Cela peut paraitre eleve au global (~75%), mais ce resultat est decevant:
+- seuls 36% des 'Charged Off' sont predit 'Charge Off' par le modele
+- seuls 32% des predictions de 'Charge Off' sont effectivement 'Charged Off'
+Attention: ces resultats peuvent varier en fonction des echantillons aleatoires generes
+
+# Utilisation de la fonction Confusion.Table deja creee: elle ajuste le seuil de probabilite et genere une matrice de confusion
+Notez: la QDA est deja realisee. Il s'agit de moduler le seuil d'allocation des previsions
+
+Mise en oeuvre de la fonction : etape par etape (indirecte): on prend soin de definir les parametre un a un
+
+```{r}
+actual <- dta_m[-train, "loan_status"] # actual status over the 'train' subset
+pred <- qda.pred$posterior[,1] # predicted probabilities (1st column = 'Failed') from QDA model
+proba.threshold <- mean(pred) # average predicted probability instead of 50% probability threshold
+Confusion.Table(actual, pred, proba.threshold)
+round(Confusion.Table(actual, pred, proba.threshold),2)
+```
+
+Mise ne oeuvre directe: les parametres sont definis a l'interieur au risque d'etre moins visible
+
+```{r}
+round(Confusion.Table(dta_m[-train, "loan_status"], qda.pred$posterior[,1], median(qda.pred$posterior[,1])),2)
+```
+
+Utiliser la moyenne ou la mediane comme seuil de probabilite pour distinguer les previsions re-alloue les taux de succes:
+- le taux de succes global diminue
+- le taux d'identification des defauts effectifs augmente
+- et la qualite des previsions de defaut decroit
+
+
+# Creation d'une fonction Run.n.random.qdareg
+- Pour realiser 'n' regressions lineaires discriminantes 
+- Sur le dataset 'dta_m'
+- Et sur le subset in-sample 'train' de proportion 'insample_prop'
+- Et, qui renvoie la pertinence globale de la matrice de confusion des previsions
+ 
+```{r}
+Run.n.random.qdareg <- function(n = 2, dta, insample_prop = 0.8, threshold = c("mean", "median", "50%")) {
+  res <- matrix(, nrow = n, ncol = 5)
+  for (i in 1:n) {
+    train <- sample(dim(dta)[1], size = insample_prop * dim(dta)[1], replace = FALSE)
+    qda.fit <- qda(loan_status ~ . , data = dta, subset = train)
+    qda.pred <- predict(qda.fit, dta[-train,])
+    qda.class <- qda.pred$class
+    
+    actual <- dta_m[-train, "loan_status"] # actual status over the 'train' subset
+    pred <- qda.pred$posterior[,1] # predicted probabilities (1st column = 'Failed') from LDA model
+    proba.threshold <- switch(threshold,
+                       "mean" = mean(pred), # average predicted probability
+                       "median" = median(pred), # median predicted probability
+                       "50%" = 0.5) # 50% probability
+    Confusion.Table(actual, pred, proba.threshold)
+    res[i,1]  <-  round(Confusion.Table(actual, pred, proba.threshold)[3,3],2)
+    res[i,2]  <-  round(Confusion.Table(actual, pred, proba.threshold)[3,1],2)
+    res[i,3]  <-  round(Confusion.Table(actual, pred, proba.threshold)[1,3],2)
+    res[i,4]  <-  round(Confusion.Table(actual, pred, proba.threshold)[3,2],2)
+    res[i,5]  <-  round(Confusion.Table(actual, pred, proba.threshold)[2,3],2)
+    colnames(res) <- c("Global", "Actual.Failed", "Pred.Failed", "Actual.Valid", "Pred.Valid")
+    
+  }
+  return(res)  
+}
+```
+
+# Application: n = 10 regressions quadratiques discriminantes, insample_prop = 80%, threshold = "mean"
+Attention: cela prend un peu de temps avec 10 regressions quadratiques (envisager le calcul parallele!?)
+
+```{r}
+Run.n.random.qdareg(n = 10, dta_m, insample_prop = 0.8, threshold = "mean")
+```
+
+# Nettoyage des donnees
+
+```{r}
+rm(train, qda.class, qda.pred, qda.fit, dta_m, pred, actual, proba.threshold)
+```
+
+
+
+
+
