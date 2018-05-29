@@ -1,0 +1,413 @@
+---
+title: "Lending Club 2 - Modeles"
+output:
+  pdf_document: default
+---
+
+```{r , echo=FALSE}
+loan <- read.csv("loan.csv", header = TRUE, sep = ",", dec = ".")
+dt <- c("issue_d","earliest_cr_line","last_pymnt_d","next_pymnt_d","last_credit_pull_d")
+period_factor <- function(x){
+  # convertir en char
+  x.char <- as.character(x)
+  
+  # ajouter un jour pour que ça soit ensuite reconnu comme date
+  x.char <- paste("01-", x.char, sep = "")
+  
+  # convertir en date
+  Sys.setlocale("LC_TIME", "English_United States")
+  x.date <- as.Date(x.char, format = c("%d-%b-%Y"))
+  
+  return(as.factor(x.date))
+}
+
+for(col in dt){
+  loan[,col] <- period_factor(loan[,col])
+}
+
+char <- c("emp_title","url","title","desc")
+
+for(col in char){
+  loan[, col] <- as.character(loan[, col])
+}
+
+loan.class <- sapply(loan, class)
+
+mod <- which(loan.class == "factor")
+num <- which(loan.class %in% c("integer","numeric"))
+
+paid <- c("Fully Paid")
+not_paid <- c("Charged Off")
+
+loan2 <- loan[loan$loan_status %in% c(paid, not_paid),]
+loan2$loan_status <- as.factor(as.character(loan2$loan_status))
+
+NA_rate <- function(x){
+  isna <- sapply(x, is.na)
+  return(round(length(isna[isna == TRUE])/length(isna)*100, 2))
+}
+
+res <- cbind(
+  sapply(colnames(loan2), function(x) NA_rate(loan2[loan2$loan_status == "Charged Off",][x])),
+  sapply(colnames(loan2), function(x) NA_rate(loan2[loan2$loan_status == "Fully Paid",][x])),
+  sapply(colnames(loan2), function(x) class(loan2[,x]))
+)
+
+colnames(res) <- c("Charged Off", "Fully Paid", "class")
+
+excl_tech <- c("id","member_id")
+excl_char <- rownames(res[which(res[,"class"] == "character"),])
+excl_na <- rownames(res[which(as.numeric(res[,"Charged Off"]) > 90),])
+
+r_mths_since_last_delinq <- which(is.na(loan2$mths_since_last_delinq))
+loan2[r_mths_since_last_delinq, "mths_since_last_delinq"] <- 0
+
+r_mths_since_last_record <- which(is.na(loan2$mths_since_last_record))
+loan2[r_mths_since_last_record, "mths_since_last_record"] <- 0
+
+r_mths_since_last_major_derog <- which(is.na(loan2$mths_since_last_major_derog))
+loan2[r_mths_since_last_major_derog, "mths_since_last_major_derog"] <- 0
+
+excl_other <- c("collections_12_mths_ex_med",
+                "tot_coll_amt",
+                "tot_cur_bal",
+                "total_rev_hi_lim",
+                "revol_util")
+
+excl <- c(excl_tech, excl_na, excl_other, dt, excl_char)
+col_to_exclude <- which(colnames(loan2) %in% excl)
+
+loan3 <- loan2[, -col_to_exclude]
+
+loan3.class <- sapply(loan3, class)
+
+excl_other2 <- c("zip_code",
+                 "addr_state",
+                 "total_pymnt",
+                 "total_pymnt_inv",
+                 "total_rec_prncp",
+                 "total_rec_int",
+                 "total_rec_late_fee",
+                 "recoveries",
+                 "collection_recovery_fee",
+                 "out_prncp",
+                 "out_prncp_inv",
+                 "last_pymnt_amnt",
+                 "policy_code",
+                 "application_type",
+                 "pymnt_plan",
+                 "application_type",
+                 "verification_status_joint")
+
+col_to_exclude <- which(colnames(loan3) %in% excl_other2)
+
+loan4 <- loan3[, -col_to_exclude]
+```
+
+Définition d'une fonction qui calcul le taux de réussite du modèle à partir d'une table de contingence:
+```{r}
+success_rate <- function(t){
+  c <- colnames(t)
+  r <- rownames(t)
+  
+  if(! "Fully Paid" %in% c){
+    col_names <- colnames(t)
+    t <- cbind(t, 0)
+    colnames(t) <- c(col_names, "Fully Paid")
+  }
+  if(! "Charged Off" %in% c){
+    col_names <- colnames(t)
+    t <- cbind(t, 0)
+    colnames(t) <- c(col_names, "Charged Off")
+  }
+  if(! "Fully Paid" %in% r){
+    row_names <- rownames(t)
+    t <- rbind(t, 0)
+    rownames(t) <- c(row_names, "Fully Paid")
+  }
+  if(! "Charged Off" %in% r){
+    row_names <- rownames(t)
+    t <- rbind(t, 0)
+    rownames(t) <- c(row_names, "Charged Off")
+  }
+  
+  res <- (t["Charged Off", "Charged Off"]+t["Fully Paid", "Fully Paid"]) / sum(t)
+  return(res)
+}
+```
+
+On commence par définir les individus de train:
+```{r}
+row_train <- sample(seq(1:nrow(loan4)), size = nrow(loan4)*0.8)
+```
+
+On peut définir un taux de référence qui consiste à dire que le résultat est toujours "Fully Paid"
+```{r}
+reference_rate <- nrow(loan4[loan4[, "loan_status"] == "Fully Paid",][-row_train,])/nrow(loan4[-row_train, ])
+reference_rate
+```
+
+
+
+# GLM
+```{r}
+glm.fits <- glm(loan_status ~ ., family = binomial(logit), data = loan4[row_train,])
+  
+glm.probs <- predict(glm.fits, type = "response", newdata = loan4[-row_train,])
+  
+# on construit un vecteur de longueur de la prédiction avec Fully Paid
+
+glm.pred <- rep("Charged Off", length(glm.probs))
+glm.pred[glm.probs > 0.5] <- "Fully Paid"
+t <- table(glm.pred, loan4[-row_train, "loan_status"])
+
+# x <- seq(from = 0, to = 1, by = 0.01)
+# y <- sapply(x, function(x){
+#   glm.pred[glm.probs > x] <- "Fully Paid"
+#   t <- table(glm.pred, loan2$loan_status)
+#   return(success_rate(t))
+# })
+# plot(y~x)
+
+summary(glm.fits)
+
+```
+
+Taux de succès de prédiction:
+```{r}
+success_rate_glm <- success_rate(t)
+success_rate_glm
+```
+
+Plot des effets
+```{r, echo=FALSE}
+library(effects)
+# plot(allEffects(glm.fits))
+# for(col in colnames(loan4)){
+#   if(col != "loan_status"){
+#     plot(Effect(col,glm.fits))
+#   }
+# }
+
+# pour une raison obscure, la boucle ne marche pas
+plot(Effect("loan_amnt",glm.fits))
+plot(Effect("funded_amnt",glm.fits))
+plot(Effect("funded_amnt_inv",glm.fits))
+plot(Effect("term",glm.fits))
+plot(Effect("int_rate",glm.fits))
+plot(Effect("installment",glm.fits))
+plot(Effect("grade",glm.fits))
+plot(Effect("sub_grade",glm.fits))
+plot(Effect("emp_length",glm.fits))
+plot(Effect("home_ownership",glm.fits))
+plot(Effect("annual_inc",glm.fits))
+plot(Effect("verification_status",glm.fits))
+plot(Effect("purpose",glm.fits))
+plot(Effect("dti",glm.fits))
+plot(Effect("delinq_2yrs",glm.fits))
+plot(Effect("inq_last_6mths",glm.fits))
+plot(Effect("mths_since_last_delinq",glm.fits))
+plot(Effect("mths_since_last_record",glm.fits))
+plot(Effect("open_acc",glm.fits))
+plot(Effect("pub_rec",glm.fits))
+plot(Effect("revol_bal",glm.fits))
+plot(Effect("total_acc",glm.fits))
+plot(Effect("initial_list_status",glm.fits))
+plot(Effect("mths_since_last_major_derog",glm.fits))
+plot(Effect("acc_now_delinq",glm.fits))
+
+
+```
+
+Remarques par rapport aux effets:
+
+* les effets pas vraiment clairs:
+** sub_grade
+** emp_length (hormis n/a mais on sait pas trop si ça veut dire que la personne est au chomage)
+** home_ownership
+** verification_status: l'effet n'est pas flagrant, surtout si on combine "Source Verified" et "Verified"
+** mths_since_last_record
+** pub_rec: l'intervalle de confiance est beaucoup trop grand
+** revol_bal
+** mths_since_last_major_derog: l'intervalle de confiance est beaucoup trop grand
+** acc_now_delinq
+
+Relance de la GLM en excluant les variables ci-dessus:
+```{r}
+excl_glm <- c("sub_grade",
+              "emp_length",
+              "home_ownership",
+              "verification_status",
+              "mths_since_last_record",
+              "pub_rec",
+              "revol_bal",
+              "mths_since_last_major_derog",
+              "acc_now_delinq")
+
+col_to_exclude <- which(colnames(loan4) %in% excl_glm)
+
+glm.fits <- glm(loan_status ~ ., family = binomial(logit), data = loan4[,-col_to_exclude])
+  
+glm.probs <- predict(glm.fits, type = "response")
+  
+# on construit un vecteur de longueur de la prédiction avec Fully Paid
+
+glm.pred <- rep("Charged Off", length(glm.probs))
+glm.pred[glm.probs > 0.5] <- "Fully Paid"
+t <- table(glm.pred, loan4$loan_status)
+
+# x <- seq(from = 0, to = 1, by = 0.01)
+# y <- sapply(x, function(x){
+#   glm.pred[glm.probs > x] <- "Fully Paid"
+#   t <- table(glm.pred, loan2$loan_status)
+#   return(success_rate(t))
+# })
+# plot(y~x)
+
+summary(glm.fits)
+
+```
+
+Taux de succès de prédiction:
+```{r}
+success_rate_glm2 <- success_rate(t)
+success_rate_glm2
+```
+
+# KNN
+
+On commence par définir une fonction qui transforme les facteurs en de nouvelles variables quantitatives:
+```{r}
+factor_to_num <- function(mod){
+  df <- as.data.frame(mod)
+  for(i in levels(mod)){
+    s <- as.data.frame(rep(0, times = length(mod)))
+    colnames(s) <- i
+    l <- which(mod == i)
+    s[l,] <- 1
+    df[,i] <- s
+  }
+  return(df[,-1])
+}
+```
+
+
+```{r}
+library(class)
+loan4_knn <- loan4[,]
+
+cl <- sapply(loan4_knn, class)
+col_fact <- which(cl == "factor")
+
+for(i in col_fact){
+  if(i != "loan_status"){
+    i_matrix <- factor_to_num(loan4_knn[,i])
+    loan4_knn <- cbind(loan4_knn,i_matrix)
+  }
+}
+
+loan4_knn <- cbind(loan4_knn["loan_status"], loan4_knn[, -col_fact])
+
+X.train <- loan4_knn[row_train, -1]
+X.test <- loan4_knn[-row_train, -1]
+
+Y.train <- loan4_knn[row_train, 1]
+Y.test <- loan4_knn[-row_train, 1]
+
+```
+
+Prédiction KNN avec k=50
+```{r}
+knn.pred <- knn(X.train,X.test,Y.train,k=50)
+t <- table(knn.pred, Y.test)
+
+# x <- seq(from = 30, to = 60, by = 5)
+# y <- 0
+# for(k in x){
+#   knn.pred <- knn(X.train,X.test,Y.train,k=k)
+#   t <- table(knn.pred, Y.test)
+#   y <- rbind(y, success_rate(t))
+# }
+# plot(y ~ x, main = "KNN", xlab = "k", ylab = "Taux de prédiction")
+
+```
+
+Taux de succès de prédiction:
+```{r}
+success_rate_knn <- success_rate(t)
+success_rate_knn
+```
+
+On recommence en excluant les mêmes variables que pour la GLM
+```{r}
+excl_knn <- c("sub_grade",
+              "emp_length",
+              "home_ownership",
+              "verification_status",
+              "mths_since_last_record",
+              "pub_rec",
+              "revol_bal",
+              "mths_since_last_major_derog",
+              "acc_now_delinq")
+
+loan4_knn <- loan4[,-excl_knn]
+
+cl <- sapply(loan4_knn, class)
+col_fact <- which(cl == "factor")
+
+for(i in col_fact){
+  if(i != "loan_status"){
+    i_matrix <- factor_to_num(loan4_knn[,i])
+    loan4_knn <- cbind(loan4_knn,i_matrix)
+  }
+}
+
+loan4_knn <- cbind(loan4_knn["loan_status"], loan4_knn[, -col_fact])
+
+X.train <- loan4_knn[row_train, -1]
+X.test <- loan4_knn[-row_train, -1]
+
+Y.train <- loan4_knn[row_train, 1]
+Y.test <- loan4_knn[-row_train, 1]
+
+knn.pred <- knn(X.train,X.test,Y.train,k=50)
+t <- table(knn.pred, Y.test)
+
+# x <- seq(from = 0, to = 60)
+# y <- 0
+# for(k in 1:60){
+#   knn.pred <- knn(X.train,X.test,Y.train,k=k)
+#   t <- table(knn.pred, Y.test)
+#   y <- rbind(y, success_rate(t))
+# }
+# plot(y ~ x, main = "KNN", xlab = "k", ylab = "Taux de prédiction")
+
+```
+
+Taux de succès de prédiction:
+```{r}
+success_rate_knn2 <- success_rate(t)
+success_rate_knn2
+```
+
+# Recap des résultats:
+
+Taux de succès de prédiction pour la GLM
+```{r}
+success_rate_glm
+```
+
+Taux de succès de prédiction pour la GLM en excluant les variables
+```{r}
+success_rate_glm2
+```
+
+Taux de succès de prédiction pour le KNN(50)
+```{r}
+success_rate_knn
+```
+
+Taux de succès de prédiction pour le KNN(50) en excluant les variables
+```{r}
+success_rate_knn2
+```
