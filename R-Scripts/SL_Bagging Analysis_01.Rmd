@@ -20,15 +20,16 @@ library(e1071)
 Function Declaration
 ```{r}
 cm.plot <- function(table_cm){
-tablecm <- round(t(t(table_cm) / colSums(as.matrix(table_cm))*100)) # crée les pourcentages
-tablemelt <- melt(tablecm)
-ggplot(tablemelt, aes(Reference, Prediction)) +
-geom_point(aes(size = value, color=value), alpha=0.8, show.legend=FALSE) +
-geom_text(aes(label = value), color="white") +
-scale_size(range = c(5,25)) +
-scale_y_discrete(limits = rev(levels(tablemelt$Prediction)))+
-theme_bw()
+  tablecm <- round(t(t(table_cm) / colSums(as.matrix(table_cm))*100)) # crée les pourcentages
+  tablemelt <- melt(tablecm)
+  ggplot(tablemelt, aes(Reference, Prediction)) +
+  geom_point(aes(size = value, color=value), alpha=0.8, show.legend=FALSE) +
+  geom_text(aes(label = value), color="white") +
+  scale_size(range = c(5,25)) +
+  scale_y_discrete(limits = rev(levels(tablemelt$Prediction)))+
+  theme_bw()
 }
+
 ```
 
 Dataset loading
