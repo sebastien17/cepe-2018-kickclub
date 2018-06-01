@@ -1,0 +1,194 @@
+---
+title: "Bagging Analysis"
+output: html_notebook
+---
+
+Bagging Analysis
+----------------
+
+Library Loading
+```{r include=FALSE}
+library(caret)
+library(MLmetrics)
+library(parallel)
+library(doParallel)
+library(reshape2)
+library(ggplot2)
+library(e1071)
+library(rlist)
+```
+
+Functions Declaration
+```{r}
+cm.plot <- function(table_cm){
+  tablecm <- round(t(t(table_cm) / colSums(as.matrix(table_cm))*100)) # crée les pourcentages
+  tablemelt <- melt(tablecm)
+  ggplot(tablemelt, aes(Reference, Prediction)) +
+  geom_point(aes(size = value, color=value), alpha=0.8, show.legend=FALSE) +
+  geom_text(aes(label = value), color="white") +
+  scale_size(range = c(5,25)) +
+  scale_y_discrete(limits = rev(levels(tablemelt$Prediction)))+
+  theme_bw()
+}
+
+```
+
+Dataset loading
+```{r}
+dta_ <- readRDS("..\\Data\\loan5.RDS")
+```
+
+Parameters
+```{r}
+sampling_factor=0.01
+sample_seed = 17
+k_cv_sampling = 10
+model_type = "parRF"
+train_results_name = "SL_RF_01"
+```
+
+
+
+
+
+Data sampling preparation
+```{r}
+set.seed(sample_seed)
+dta_sample_index <- createDataPartition(dta_$loan_status, p = sampling_factor, list = FALSE, times = 1)
+
+paste("Nb Observation dans le sample : ", length(dta_sample_index))
+
+dta_sample <- dta_[dta_sample_index,]
+train.index <- createDataPartition(dta_sample$loan_status, p = .66, list = FALSE, times = 1)
+
+dta_.train.x <- data.frame(dta_sample[train.index,!(colnames(dta_) %in% c("loan_status"))])
+dta_.train.y <- as.factor(dta_sample[train.index,c("loan_status")])
+dta_.test.x <- data.frame(dta_sample[-train.index,!(colnames(dta_) %in% c("loan_status"))])
+dta_.test.y <- as.factor(dta_sample[-train.index,c("loan_status")])
+
+#Proportion verification
+table(dta_$loan_status)/sum(table(dta_$loan_status))
+table(dta_.train.y)/sum(table(dta_.train.y))
+table(dta_.test.y)/sum(table(dta_.test.y))
+```
+
+Train Launch Samplin None
+```{r}
+
+#getModelInfo(model_type)
+
+#Cluster initialization
+train_results = list()
+
+#Case No sampling
+print(paste0("Starting None sampling"))
+detectCores() # nombre de coe,urs sur la machine
+cluster <- makeCluster(detectCores() - 1) # par convention on laisse un coeur pour l'OS
+registerDoParallel(cluster)
+
+gridsearch <- expand.grid(mtry=seq(1, 24, 1)) #
+train_results[["none"]] <- train(dta_.train.x,
+                            dta_.train.y,
+                            method = model_type,
+                            tuneGrid=gridsearch,
+                            trControl=trainControl(method="cv",
+                                                   number= k_cv_sampling,
+                                                   returnResamp='none',
+                                                   summaryFunction = prSummary,
+                                                   classProbs = TRUE,
+                                                   allowParallel = TRUE),
+                            metric='F')
+#Closing cluster
+stopCluster(cluster)
+registerDoSEQ()
+
+
+for(samp_ in c("up","down")){
+
+  paste0("Starting ",samp_," sampling")
+  detectCores() # nombre de coe,urs sur la machine
+  cluster <- makeCluster(detectCores() - 1) # par convention on laisse un coeur pour l'OS
+  registerDoParallel(cluster)
+  
+  gridsearch <- expand.grid(mtry=seq(1, 24, 1)) #
+  train_results[[samp_]] <- train(dta_.train.x,
+                              dta_.train.y,
+                              method = model_type,
+                              tuneGrid=gridsearch,
+                              trControl=trainControl(method="cv",
+                                                     number= k_cv_sampling,
+                                                     returnResamp='none',
+                                                     summaryFunction = prSummary,
+                                                     classProbs = TRUE,
+                                                     allowParallel = TRUE,
+                                                     sampling = samp_),
+                              metric='F')
+  
+  #Closing cluster
+  stopCluster(cluster)
+  registerDoSEQ()
+  
+}
+
+```
+
+Results
+```{r}
+for(samp_ in c("none","up","down")){ 
+  plot(train_results[[samp_]])
+  paste('Best tune : ', train_results[[samp_]]$bestTune)
+}
+```
+
+Predictions Sampling None
+```{r echo=TRUE}
+samp_ <- "none"
+samp_
+plot(train_results[[samp_]])
+paste('Best tune : ', train_results[[samp_]]$bestTune)  
+prediction <- predict(object=train_results[[samp_]]$finalModel, dta_.test.x, type='class')
+head(prediction)
+conf_matrix <- confusionMatrix(prediction, dta_.test.y)
+conf_matrix
+cm.plot(conf_matrix$table)
+
+```
+
+Predictions Sampling Up
+```{r echo=TRUE}
+samp_ <- "up"
+samp_
+plot(train_results[[samp_]])
+paste('Best tune : ', train_results[[samp_]]$bestTune)  
+prediction <- predict(object=train_results[[samp_]]$finalModel, dta_.test.x, type='class')
+head(prediction)
+conf_matrix <- confusionMatrix(prediction, dta_.test.y)
+conf_matrix
+cm.plot(conf_matrix$table)
+
+```
+
+Predictions Sampling Down
+```{r echo=TRUE}
+samp_ <- "down"
+samp_
+plot(train_results[[samp_]])
+paste('Best tune : ', train_results[[samp_]]$bestTune)  
+prediction <- predict(object=train_results[[samp_]]$finalModel, dta_.test.x, type='class')
+head(prediction)
+conf_matrix <- confusionMatrix(prediction, dta_.test.y)
+conf_matrix
+cm.plot(conf_matrix$table)
+
+```
+
+Saving Train results 
+```{r}
+for(samp_ in c("none","up","down")){ 
+saveRDS(train_results[[samp_]], paste0("..\\Model\\",train_results_name,"_", samp_,".mod"))
+}
+
+
+```
+
+
