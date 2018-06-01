@@ -79,6 +79,7 @@ Train Launch Samplin None
 
 #Cluster initialization
 train_results = list()
+gridsearch <- expand.grid(mtry=seq(1, 24, 1)) #
 
 #Case No sampling
 print(paste0("Starting None sampling"))
@@ -86,7 +87,6 @@ detectCores() # nombre de coe,urs sur la machine
 cluster <- makeCluster(detectCores() - 1) # par convention on laisse un coeur pour l'OS
 registerDoParallel(cluster)
 
-gridsearch <- expand.grid(mtry=seq(1, 24, 1)) #
 train_results[["none"]] <- train(dta_.train.x,
                             dta_.train.y,
                             method = model_type,
@@ -110,7 +110,6 @@ for(samp_ in c("up","down")){
   cluster <- makeCluster(detectCores() - 1) # par convention on laisse un coeur pour l'OS
   registerDoParallel(cluster)
   
-  gridsearch <- expand.grid(mtry=seq(1, 24, 1)) #
   train_results[[samp_]] <- train(dta_.train.x,
                               dta_.train.y,
                               method = model_type,
@@ -151,6 +150,7 @@ head(prediction)
 conf_matrix <- confusionMatrix(prediction, dta_.test.y)
 conf_matrix
 cm.plot(conf_matrix$table)
+plot(varImp(train_results[[samp_]]$finalModel), main="Variable Importance with MARS")
 
 ```
 
