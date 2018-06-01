@@ -44,7 +44,7 @@ sampling_factor=0.01
 sample_seed = 17
 k_cv_sampling = 10
 model_type = "parRF"
-train_results_name = "SL_RF-Bagging_01"
+train_results_name = "SL_RF_01"
 ```
 
 
@@ -101,9 +101,7 @@ train_results[["none"]] <- train(dta_.train.x,
 #Closing cluster
 stopCluster(cluster)
 registerDoSEQ()
-#Results
-paste0("Starting ",samp_," sampling")
-train_results["none"]
+
 
 for(samp_ in c("up","down")){
 
@@ -130,9 +128,6 @@ for(samp_ in c("up","down")){
   stopCluster(cluster)
   registerDoSEQ()
   
-  #Results
-  paste0("########################################################### ",samp_," ###################################################################")
-  train_results[[samp_]]
 }
 
 ```
@@ -140,27 +135,60 @@ for(samp_ in c("up","down")){
 Results
 ```{r}
 for(samp_ in c("none","up","down")){ 
-  paste0("########################################################### ",samp_," ###################################################################")
   plot(train_results[[samp_]])
   paste('Best tune : ', train_results[[samp_]]$bestTune)
 }
 ```
 
-Predictions
+Predictions Sampling None
 ```{r echo=TRUE}
-for(samp_ in c("none","up","down")){ 
-  paste0("########################################################### ",samp_," ###################################################################")
-  prediction <- predict(object=train_results[[samp_]]$finalModel, dta_.test.x, type='class')
-  head(prediction)
-  conf_matrix <- confusionMatrix(prediction, dta_.test.y)
-  conf_matrix
-  cm.plot(conf_matrix$table)
-}
+samp_ <- "none"
+samp_
+plot(train_results[[samp_]])
+paste('Best tune : ', train_results[[samp_]]$bestTune)  
+prediction <- predict(object=train_results[[samp_]]$finalModel, dta_.test.x, type='class')
+head(prediction)
+conf_matrix <- confusionMatrix(prediction, dta_.test.y)
+conf_matrix
+cm.plot(conf_matrix$table)
+
+```
+
+Predictions Sampling Up
+```{r echo=TRUE}
+samp_ <- "up"
+samp_
+plot(train_results[[samp_]])
+paste('Best tune : ', train_results[[samp_]]$bestTune)  
+prediction <- predict(object=train_results[[samp_]]$finalModel, dta_.test.x, type='class')
+head(prediction)
+conf_matrix <- confusionMatrix(prediction, dta_.test.y)
+conf_matrix
+cm.plot(conf_matrix$table)
+
+```
+
+Predictions Sampling Down
+```{r echo=TRUE}
+samp_ <- "down"
+samp_
+plot(train_results[[samp_]])
+paste('Best tune : ', train_results[[samp_]]$bestTune)  
+prediction <- predict(object=train_results[[samp_]]$finalModel, dta_.test.x, type='class')
+head(prediction)
+conf_matrix <- confusionMatrix(prediction, dta_.test.y)
+conf_matrix
+cm.plot(conf_matrix$table)
+
 ```
 
 Saving Train results 
 ```{r}
-#saveRDS(train_results, paste0("..\\Model\\",train_results_name,".mod"))
+for(samp_ in c("none","up","down")){ 
+saveRDS(train_results[[samp_]], paste0("..\\Model\\",train_results_name,"_", samp_,".mod"))
+}
+
+
 ```
 
 
