@@ -38,13 +38,26 @@ Dataset loading
 dta_ <- readRDS("..\\Data\\loan5.RDS")
 ```
 
-Data sampling preparation
+Parameters
 ```{r}
 sampling_factor=0.01
+sample_seed = 17
+k_cv_sampling = 10
+model_type = "parRF"
+train_results_name = "SL_RF-Bagging_01"
+```
 
-set.seed(17)
+
+
+
+
+Data sampling preparation
+```{r}
+set.seed(sample_seed)
 dta_sample_index <- createDataPartition(dta_$loan_status, p = sampling_factor, list = FALSE, times = 1)
+
 paste("Nb Observation dans le sample : ", length(dta_sample_index))
+
 dta_sample <- dta_[dta_sample_index,]
 train.index <- createDataPartition(dta_sample$loan_status, p = .66, list = FALSE, times = 1)
 
@@ -53,69 +66,101 @@ dta_.train.y <- as.factor(dta_sample[train.index,c("loan_status")])
 dta_.test.x <- data.frame(dta_sample[-train.index,!(colnames(dta_) %in% c("loan_status"))])
 dta_.test.y <- as.factor(dta_sample[-train.index,c("loan_status")])
 
-#Level Name Compatibility
-levels(dta_.train.y) <- c("CO","FP")
-levels(dta_.test.y) <- c("CO","FP")
-
-#Level ref = FP
-dta_.train.y <- relevel(dta_.train.y, "CO")
-dta_.test.y <- relevel(dta_.test.y, "CO")
-
 #Proportion verification
 table(dta_$loan_status)/sum(table(dta_$loan_status))
 table(dta_.train.y)/sum(table(dta_.train.y))
 table(dta_.test.y)/sum(table(dta_.test.y))
 ```
 
-
-Parallel computing Setup
+Train Launch Samplin None
 ```{r}
-detectCores() # nombre de coeurs sur la machine
+
+#getModelInfo(model_type)
+
+#Cluster initialization
+train_results = list()
+
+#Case No sampling
+print(paste0("Starting None sampling"))
+detectCores() # nombre de coe,urs sur la machine
 cluster <- makeCluster(detectCores() - 1) # par convention on laisse un coeur pour l'OS
 registerDoParallel(cluster)
-```
 
-Training Setup
-```{r}
-k_cv_sampling = 10
-seed_list = lapply(0:k_cv_sampling,function(in_){seq(1:24)})
-seed_list <- list.append(seed_list,17)
-#seeds <- list(seed_list,seed_list,seed_list,17)
-objControl <- trainControl(method="cv", number= k_cv_sampling, returnResamp='none', summaryFunction = prSummary, classProbs = TRUE, allowParallel = TRUE,seeds = seed_list)
-#seeds = seeds has to be added to maintain the same seeds across trainings
-```
-
-Train Launch
-```{r}
-model_type = "parRF"
-#getModelInfo(model_type)
 gridsearch <- expand.grid(mtry=seq(1, 24, 1)) #
-tune <- train(dta_.train.x,dta_.train.y,method = model_type, tuneGrid=gridsearch, trControl=objControl,metric='F')
-tune
-```
-
-Closing Parallel Computing Instance
-```{r}
+train_results[["none"]] <- train(dta_.train.x,
+                            dta_.train.y,
+                            method = model_type,
+                            tuneGrid=gridsearch,
+                            trControl=trainControl(method="cv",
+                                                   number= k_cv_sampling,
+                                                   returnResamp='none',
+                                                   summaryFunction = prSummary,
+                                                   classProbs = TRUE,
+                                                   allowParallel = TRUE),
+                            metric='F')
+#Closing cluster
 stopCluster(cluster)
 registerDoSEQ()
+#Results
+paste0("Starting ",samp_," sampling")
+train_results["none"]
+
+for(samp_ in c("up","down")){
+
+  paste0("Starting ",samp_," sampling")
+  detectCores() # nombre de coe,urs sur la machine
+  cluster <- makeCluster(detectCores() - 1) # par convention on laisse un coeur pour l'OS
+  registerDoParallel(cluster)
+  
+  gridsearch <- expand.grid(mtry=seq(1, 24, 1)) #
+  train_results[[samp_]] <- train(dta_.train.x,
+                              dta_.train.y,
+                              method = model_type,
+                              tuneGrid=gridsearch,
+                              trControl=trainControl(method="cv",
+                                                     number= k_cv_sampling,
+                                                     returnResamp='none',
+                                                     summaryFunction = prSummary,
+                                                     classProbs = TRUE,
+                                                     allowParallel = TRUE,
+                                                     sampling = samp_),
+                              metric='F')
+  
+  #Closing cluster
+  stopCluster(cluster)
+  registerDoSEQ()
+  
+  #Results
+  paste0("########################################################### ",samp_," ###################################################################")
+  train_results[[samp_]]
+}
+
 ```
 
 Results
 ```{r}
-plot(tune)
-paste('Best tune : ', tune$bestTune)
+for(samp_ in c("none","up","down")){ 
+  paste0("########################################################### ",samp_," ###################################################################")
+  plot(train_results[[samp_]])
+  paste('Best tune : ', train_results[[samp_]]$bestTune)
+}
 ```
 
 Predictions
-```{r}
-prediction <- predict(object=tune$finalModel, dta_.test.x, type='class')
-
-head(prediction)
-conf_matrix <- confusionMatrix(prediction, dta_.test.y)
-conf_matrix
-cm.plot(conf_matrix$table)
+```{r echo=TRUE}
+for(samp_ in c("none","up","down")){ 
+  paste0("########################################################### ",samp_," ###################################################################")
+  prediction <- predict(object=train_results[[samp_]]$finalModel, dta_.test.x, type='class')
+  head(prediction)
+  conf_matrix <- confusionMatrix(prediction, dta_.test.y)
+  conf_matrix
+  cm.plot(conf_matrix$table)
+}
 ```
 
-
+Saving Train results 
+```{r}
+#saveRDS(train_results, paste0("..\\Model\\",train_results_name,".mod"))
+```
 
 
