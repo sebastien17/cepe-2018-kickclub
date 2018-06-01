@@ -78,17 +78,19 @@ registerDoParallel(cluster)
 Training Setup
 ```{r}
 k_cv_sampling = 10
-seed_list = lapply(1:k_cv_sampling+1,function(in_){seq(1:24)})
+seed_list = lapply(0:k_cv_sampling,function(in_){seq(1:24)})
 seed_list <- list.append(seed_list,17)
 #seeds <- list(seed_list,seed_list,seed_list,17)
-objControl <- trainControl(method="cv", number= k_cv_sampling, returnResamp='none', summaryFunction = prSummary, classProbs = TRUE, allowParallel = TRUE,seeds = seed_list, sampling = 'up')
+objControl <- trainControl(method="cv", number= k_cv_sampling, returnResamp='none', summaryFunction = prSummary, classProbs = TRUE, allowParallel = TRUE,seeds = seed_list)
 #seeds = seeds has to be added to maintain the same seeds across trainings
 ```
 
 Train Launch
 ```{r}
+model_type = "parRF"
+#getModelInfo(model_type)
 gridsearch <- expand.grid(mtry=seq(1, 24, 1)) #
-tune <- train(dta_.train.x,dta_.train.y,method = "parRF",tuneGrid=gridsearch, trControl=objControl,metric='F')
+tune <- train(dta_.train.x,dta_.train.y,method = model_type, tuneGrid=gridsearch, trControl=objControl,metric='F')
 tune
 ```
 
