@@ -15,9 +15,10 @@ library(doParallel)
 library(reshape2)
 library(ggplot2)
 library(e1071)
+library(rlist)
 ```
 
-Function Declaration
+Functions Declaration
 ```{r}
 cm.plot <- function(table_cm){
   tablecm <- round(t(t(table_cm) / colSums(as.matrix(table_cm))*100)) # crée les pourcentages
@@ -56,6 +57,10 @@ dta_.test.y <- as.factor(dta_sample[-train.index,c("loan_status")])
 levels(dta_.train.y) <- c("CO","FP")
 levels(dta_.test.y) <- c("CO","FP")
 
+#Level ref = FP
+dta_.train.y <- relevel(dta_.train.y, "CO")
+dta_.test.y <- relevel(dta_.test.y, "CO")
+
 #Proportion verification
 table(dta_$loan_status)/sum(table(dta_$loan_status))
 table(dta_.train.y)/sum(table(dta_.train.y))
@@ -73,9 +78,10 @@ registerDoParallel(cluster)
 Training Setup
 ```{r}
 k_cv_sampling = 10
-#seed_list = 1:k_cv_sampling
+seed_list = lapply(1:k_cv_sampling+1,function(in_){seq(1:24)})
+seed_list <- list.append(seed_list,17)
 #seeds <- list(seed_list,seed_list,seed_list,17)
-objControl <- trainControl(method="cv", number= k_cv_sampling, returnResamp='none', summaryFunction = prSummary, classProbs = TRUE, allowParallel = TRUE)
+objControl <- trainControl(method="cv", number= k_cv_sampling, returnResamp='none', summaryFunction = prSummary, classProbs = TRUE, allowParallel = TRUE,seeds = seed_list, sampling = 'up')
 #seeds = seeds has to be added to maintain the same seeds across trainings
 ```
 
