@@ -4,60 +4,59 @@ output:
   pdf_document: default
 ---
 
-# Nettoyage des donn?es
+# Nettoyage des données
 
-Load du fichier
-
-```{r}
-dirpath <- "C:/Users/Eric/Documents/Eric/Pro/Transition/Formation/CEPE ENSAE ENSAI Certificat Data Scientist/INTENSIVE/PROJETS/KickClub Project"
-dirpath2 <- "Lending Club/LC0715"
-filename <- "loan.csv"
-my_file <- paste(dirpath, dirpath2, filename, sep = "/")
+```{r, echo = FALSE, warning = FALSE}
+library(lubridate)
+library(dplyr)
 ```
 
-Proposition alternative
-===========================================================
+## Load du fichier
+```{r}
+dirpath <- "C:/Users/sebde/OneDrive/Documents/cepe-2018-kickclub/Data"
+filename <- "loan.csv"
+my_file <- paste(dirpath, filename, sep = "/")
+```
 
-# On commence par re-charger les donnees originales
+## On commence par charger les donnees originales
 
 ```{r}
 loan5 <- read.csv(my_file, header = TRUE, sep = ",", dec = ".")
 ```
 
 
-# Conversion des dates
+## On nettoye les dates
 
 ```{r}
-# Conversion des dates format 'factor' en dates format 'Date'
+## Conversion des dates format 'factor' en dates format 'Date'
 dt <- c("issue_d","earliest_cr_line")
 
-period_factor2 <- function(x){
+period_factor <- function(x){
 
-    # convertir en char
+  ## convertir en char
   x.char <- as.character(x)
   
-    # ajouter un jour pour que ?a soit ensuite reconnu comme date
+  ## ajouter un jour pour que la chaîne de caractère soit ensuite reconnu comme date
   x.char <- paste("01-", x.char, sep = "")
   
-    # convertir en date
+  ## convertir en date
   Sys.setlocale("LC_TIME", "English_United States")
   x.date <- as.Date(x.char, format = c("%d-%b-%Y"))
   
-  return(x.date) # ? la place de return(as.factor(x.date))
+  return(x.date)
   
 }
 
 for (col in dt) {
-  loan5[,col] <- period_factor2(loan5[,col])
+  loan5[,col] <- period_factor(loan5[,col])
 }
 ```
 
-# Creation de nouvelles variables
+## Creation de nouvelles variables
 
-- "length_cr_line": la dif?rence entre "issue_d" et "earliest_cr_line", soit l'historique de cr?dit au moment de l'?mission du pret
+- "length_cr_line": la diférence entre "issue_d" et "earliest_cr_line", soit l'historique de crédit au moment de l'émission du pret
 
 ```{r}
-library(dplyr)
 loan5 <- loan5 %>% mutate(length_cr_line = as.numeric(issue_d - earliest_cr_line))
 summary(loan5$length_cr_line)
 ```
@@ -65,66 +64,56 @@ summary(loan5$length_cr_line)
 - "issue_y" l'ann?e plut?t que le mois ("issue_d") d'?mission du pret
 
 ```{r}
-library(lubridate)
 loan5 <- loan5 %>% mutate(issue_y = factor(year(issue_d)))
 summary(loan5$issue_y)
 ```
 
-# Reprise du jeu de donnees avec les traitements initiaux de 'loan2'
+## On garde uniquement les modalités qui nous interessent
+
+* Fully Paid: le crédit est arrivé à terme
+* Charged Off: l'emprunteur est en cessation de paiement
+
+Les autres modalités sont enlevées (prêt en cours)
 
 ```{r}
-# ceux qui ont pay?s jusqu'au bout
+## ceux qui ont payé jusqu'au bout
 paid <- c("Fully Paid")
 
-# ceux qui ont ?t? en "faillite"
+## ceux qui sont en "faillite"
 not_paid <- c("Charged Off")
 
 loan5 <- loan5[loan5$loan_status %in% c(paid, not_paid),]
 loan5$loan_status <- as.factor(as.character(loan5$loan_status))
 ```
 
-# Pourquoi je ne garderais q'une de ces trois variables: funded_amnt
-Une trop forte corr?lation entre les variables fait parfois plant? certains mod?les
+## Des variables sont fortement corrélées
+Une trop forte corrélation entre les variables fait parfois planter certains modèles
 
 ```{r}
 cor(loan5[,c("loan_amnt", "funded_amnt", "funded_amnt_inv")])
 ```
 
-# Liste des variables selectionnees
-Je proposerais la liste suivante des variables ? conserver:
+
+## Liste des variables selectionnées
+Après analyse fonctionnelle des variables:
+
+* taux de NA trop élevé
+* variables connues a posteriori
+
+On décide de garder les variables suivantes:
 
 ```{r}
-keep <- c("loan_status", "funded_amnt", "term", "int_rate", "installment", "grade", "sub_grade", "emp_length", "home_ownership", "annual_inc", "verification_status", "purpose", "addr_state", "dti", "delinq_2yrs", "inq_last_6mths", "mths_since_last_delinq", "mths_since_last_record", "open_acc", "pub_rec", "revol_bal", "revol_util", "total_acc", "initial_list_status", "mths_since_last_major_derog", "acc_now_delinq", "length_cr_line", "issue_y")
+keep <- c("loan_status", "funded_amnt", "term", "int_rate", "installment", "grade", "sub_grade", "emp_length", "home_ownership", "annual_inc", "verification_status", "purpose", "addr_state", "dti", "delinq_2yrs", "inq_last_6mths", "open_acc", "pub_rec", "revol_bal", "revol_util", "total_acc", "initial_list_status", "acc_now_delinq", "length_cr_line", "issue_y")
 keep
 ```
 
-# Selection des variables
+## Selection des variables dans le dataset
 
 ```{r}
 loan5 <- loan5[,keep]
 ```
 
-# Probleme des variables 'mnths_xxxx':
-
-Les donn?es mnths_xxxx posent probl?me
-* mths_since_last_delinq: 0
-* mths_since_last_record: 0
-* mths_since_last_major_derog: 0
-Comme observe precedemment, nous devrions traiter les NAs e l'oppose: un nombre de mois elev depuis la derniere infraction
-Or, c'est impossible de d?terminer 
-On pourrait:
-- soit les convertir en 'factor' (avec un 'level' 'inconnu' pour les NAs) 
-- soit les ?liminer tous les trois
-Pour faire simple et rapide, je sugg?re de les ?liminer pour l'instant.
-
-```{r}
-excl_mnths <- c("mths_since_last_delinq", "mths_since_last_record", "mths_since_last_major_derog")
-col_to_exclude <- which(colnames(loan5) %in% excl_mnths)
-loan5 <- loan5[, -col_to_exclude]
-```
-
-
-# Traitement supplementaire des donnees
+## Traitement supplementaire des donnees
 
 Apercu du jeu de donnees selectionnees
 
@@ -132,45 +121,52 @@ Apercu du jeu de donnees selectionnees
 summary(loan5)
 ```
 
-Nettoyage des derniers NAs
+* Nettoyage des derniers NAs
 
 ```{r}
 loan5 <- filter(loan5, !is.na(loan5[,"revol_util"]))
 ```
 
-Conversion de la variable 'home_owner_ship' a trois modalites seulement
+* Conversion de la variable 'home_owner_ship' a trois modalites seulement
 
 ```{r}
 loan5 <- loan5 %>% filter(home_ownership == "MORTGAGE" | home_ownership == "RENT" | home_ownership == "OWN")
-loan5$home_ownership <- factor(loan5$home_ownership) # delete the unused levels with no more observation
+loan5$home_ownership <- factor(loan5$home_ownership) ## delete the unused levels with no more observation
+```
+
+* Relevel des loan_status: variable à expliquer
+
+```{r}
+levels(loan5$loan_status) <- c("CO", "FP")
 ```
 
 
-# Sauvegarder le jeu de donnees pour la modelisation
+## Sauvegarder le jeu de donnees pour la modelisation
 
 ```{r}
-savefile = "loan5.RDS"
-saveRDS(object = loan5, file = paste(dirpath, dirpath2, savefile, sep = "/"))
+clean_file_name <-  "loan5.RDS"
+saveRDS(object = loan5, file = paste(dirpath, clean_file_name, sep = "/"))
 ```
 
-# Reprise des graphiques de S?b
 
-Variables 'factor'
+# Visualisation des variables conservées
+
+* Variables 'factor'
 
 ```{r}
-# on conserve le nombre dans chaque niveau pour pouvoir ensuite plut?t bosser sur des pourcentages
-nb_not_paid <- nrow(loan5[loan5$loan_status == "Charged Off",])
-nb_paid <- nrow(loan5[loan5$loan_status == "Fully Paid",])
+## on conserve le nombre dans chaque niveau pour pouvoir ensuite plutôt bosser sur des pourcentages
+nb_not_paid <- nrow(loan5[loan5$loan_status == "CO",])
+nb_paid <- nrow(loan5[loan5$loan_status == "FP",])
 
-# affichage des factor pour voir
+## affichage des factor pour voir
 loan5.class <- sapply(loan5, class)
 mod.alt <- names(which(loan5.class == "factor"))
 
 for (i in mod.alt) {
   if (i != "loan_status") {
     t <- table(loan5[,c("loan_status", i)])
-    t["Charged Off",] <- t["Charged Off",]/nb_not_paid
-    t["Fully Paid",] <- t["Fully Paid",]/nb_paid
+    t["CO",] <- t["CO",]/nb_not_paid
+    t["FP",] <- t["FP",]/nb_paid
     
     barplot(t, beside = TRUE, col = c("red","green"), main = i)
     legend("topright", legend = c("Charged Off", "Fully Paid"), fill = c("red", "green"))
@@ -181,7 +177,7 @@ for (i in mod.alt) {
 Variables 'numeric'
 
 ```{r}
-# affichage des num pour voir
+## affichage des num pour voir
 num.alt <- which(loan5.class %in% c("integer","numeric"))
 
 for (i in num.alt) {
