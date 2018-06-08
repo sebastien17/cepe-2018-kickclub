@@ -28,7 +28,7 @@ load(file = "working_data_envt")
 Le fichier 'results' a deja ete sauve: on peut l'ouvrir pour visulaiser les resultats
 ```{r}
 ## 
-results.filename <- "EC_Logitboost_02_results.mod"
+results.filename <- "EC_LDA_01_results.mod"
 results <- readRDS(paste0(dirpath,"/",results.filename))
 ```
 
@@ -185,3 +185,92 @@ saveRDS(results, paste0(dirpath,"/",train_results_name,"_results",".mod"))
 ```
 
 
+# Inside the ROC curve 
+====================================================
+
+# Retrouver les Coordonnes d'une ROC Curve 
+- Coordonnees de la ROC Curve Sensitivity vs. Specificity 
+- Plot manuel de la ROC curve
+```{r}
+# Charger un modele au choix
+my_model <- "SL_RF_01_down.mod" 
+modele <- readRDS(paste0(dirpath,"/",my_model))
+
+probabilite <- predict(object = modele, dta_.test.x, type = "prob")
+roc_df <- data.frame(predictor = probabilite["CO"], response = as.factor(ifelse(dta_.test.y == "CO",1,0)))
+colnames(roc_df) <- c("predictor", "response")
+
+roc_train <- pROC::roc(response = roc_df$response, predictor = roc_df$predictor)
+coords(roc_train, x = "all")
+my.cutoff <- seq(0.1,0.9,0.05)
+coords_details <- round(coords(roc_train, c(-Inf, sort(my.cutoff), Inf), input = "threshold", ret = c("specificity", "sensitivity")),2)
+coords_details
+
+# on peut donc retracer la ROC curve
+plot(coords_details["specificity",], coords_details["sensitivity",], 
+     xlim = c(1, 0), type = "l", col = 'blue',
+     xlab = "Specificity", ylab = "Sensitivity")
+legend("bottomright", legend = paste(my_model), col = c("blue"), lty = 1, cex = 0.8)
+# calcul de l'AUC avec trapz
+# library(caTools)
+# trapz(coords_details["specificity",], coords_details["sensitivity",])
+```
+
+# Metrics vs. Seuils de Probabilite
+
+- Choix modele
+```{r}
+# Charger un modele au choix
+
+# my_model <- "SL_RF_01_down.mod" 
+# modele <- readRDS(paste0(dirpath,"/",my_model))
+
+# Reprise du 'modele' definit precedemment 
+probabilite <- predict(object = modele, dta_.test.x, type = "prob")
+actual = dta_.test.y
+```
+
+- Creation d'une fonction semblable a la ROC curve mais avec tous les autres metrics du modele
+pour suivre l'evolution des metrics cles pour les differents niveaux de probabilite seuil
+```{r}
+# Fonction 'fake.ROC()'
+fake.ROC <- function(probabilite, actual, liste_seuils = seq(0.1, 0.9, 0.1)) {
+  
+  res.final <- matrix(,nrow = 7, ncol = 1)
+  colnames(res.final) <- 0
+  rownames(res.final) <- c("Accuracy", "Kappa", "F-measure", "Sensitivity", "Specificity", "Precision / posPredValue", "negPredValue")
+  
+  for (threshold in liste_seuils) {
+  
+    res <- matrix(,nrow = 7, ncol = 1)
+    colnames(res) <- threshold
+    rownames(res) <- c("Accuracy", "Kappa", "F-measure", "Sensitivity", 
+                         "Specificity", "Precision / posPredValue", "negPredValue")
+    
+    if (threshold < max(probabilite[,1]) & threshold > min(probabilite[,1])) {
+      
+      prediction.prob <- ifelse(probabilite[,1] > threshold, "CO", "FP")
+      conf_matrix <- confusionMatrix(as.factor(prediction.prob), actual)
+      # Remplissage de la matrice de resultats:
+      res["Accuracy",1] <- round(conf_matrix$overall[["Accuracy"]],4)
+      res["Kappa", 1] <- round(conf_matrix$overall[["Kappa"]],4)
+      res["F-measure", 1] <- round(F_meas(data = as.factor(prediction.prob), reference = actual),4)
+      res["Sensitivity", 1] <- round(sensitivity(data = as.factor(prediction.prob), reference = actual),4)
+      res["Specificity", 1] <- round(specificity(data = as.factor(prediction.prob), reference = actual),4)
+      res["Precision / posPredValue", 1] <- round(precision(data = as.factor(prediction.prob), reference = actual),4)
+      res["negPredValue", 1] <- round(negPredValue(data = as.factor(prediction.prob), reference = actual),4)
+    }
+    
+    res.final <- cbind(res.final, res)
+    
+  }
+  
+  return(res.final)
+}
+```
+
+- Appel de la fonction
+```{r}
+fake.ROC(probabilite = probabilite, actual = actual)
+# rm(threshold, prediction.prob, liste_seuils, res, res.final, conf_matrix, probabilite, actual)
+```
