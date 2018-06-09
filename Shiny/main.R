@@ -7,6 +7,16 @@ cl <- sapply(loan, class)
 fact <- sort(colnames(loan)[which(cl == "factor")])
 num <- sort(colnames(loan)[which(cl %in% c("integer", "numeric"))])
 
+# load model knn
+knn_tune_none <- readRDS("./model/SDE_knn_none_k 1 - 200_n 2527.RDS")
+knn_tune_up <- readRDS("./model/SDE_knn_up_k 1 - 200_n 2527.RDS")
+knn_tune_down <- readRDS("./model/SDE_knn_down_k 1 - 200_n 2527.RDS")
+
+knn_none_cm <- readRDS("./model/knn_none_cm.RDS")
+knn_up_cm <- readRDS("./model/knn_up_cm.RDS")
+knn_down_cm <- readRDS("./model/knn_down_cm.RDS")
+
+
 # Define UI for application that draws a histogram
 ui <- fluidPage(
   # Application title
@@ -31,7 +41,19 @@ ui <- fluidPage(
              radioButtons("rb_quali", label = "", choices = fact, inline = TRUE),
              plotlyOutput("graph_quali")
     ),
-    tabPanel("tab2")
+    tabPanel("KNN",
+             plotlyOutput("f_measure_knn"),
+             fluidRow(
+               column(4,
+                      verbatimTextOutput("confusion_matrix_down")
+               ),
+               column(4,
+                      verbatimTextOutput("confusion_matrix_none")
+               ),
+               column(4,
+                      verbatimTextOutput("confusion_matrix_up")
+               ))
+    )
   )
 )
 
@@ -41,6 +63,8 @@ ui <- fluidPage(
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
+  
+  ###### tab Variables #####
   output$graph_quanti <- renderPlotly({
     plt <- plot_ly(type = "box")
     for(i in num){
@@ -109,6 +133,19 @@ server <- function(input, output) {
     }
   })
   
+  ###### tab KNN #####
+  output$f_measure_knn <- renderPlotly({
+    plt <- plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = knn_tune_none$results, x = ~k, y = ~F, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = knn_tune_up$results, x = ~k, y = ~F, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = knn_tune_down$results, x = ~k, y = ~F, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "K", tickangle = -45),
+             yaxis = list(title = "F-measure"))
+  })
+  
+  output$confusion_matrix_down <- renderPrint(knn_down_cm)
+  output$confusion_matrix_none <- renderPrint(knn_none_cm)
+  output$confusion_matrix_up <- renderPrint(knn_up_cm)
 }
 
 shinyApp(ui = ui, server = server)
