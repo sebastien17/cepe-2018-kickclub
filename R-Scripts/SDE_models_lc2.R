@@ -1,144 +1,194 @@
-loan_all <- readRDS("C:/Users/sebde/Documents/Cours/CEPE Data Scientist/Atelier/data/lending_club_2/loan5.RDS")
-
-factor_to_num <- function(mod){
-  df <- as.data.frame(mod)
-  for(i in levels(mod)){
-    s <- as.data.frame(rep(0, times = length(mod)))
-    colnames(s) <- i
-    l <- which(mod == i)
-    s[l,] <- 1
-    df[,i] <- s
-  }
-  return(df[,-1])
-}
-
-explode_factor <- function(dat, excl_col = c("loan_status")){
-  df <- dat[,]
-  cl <- sapply(df, class)
-  col_fact <- which(cl == "factor")
-  
-  for(i in col_fact){
-    if(!(i %in% excl_col)){
-      i_matrix <- factor_to_num(df[,i])
-      df <- cbind(df,i_matrix)
-    }
-  }
-  
-  df <- cbind(df[excl_col], df[, -col_fact])
-  return(df)
-}
-
-success_rate <- function(t){
-  c <- colnames(t)
-  r <- rownames(t)
-  
-  if(! "Fully Paid" %in% c){
-    col_names <- colnames(t)
-    t <- cbind(t, 0)
-    colnames(t) <- c(col_names, "Fully Paid")
-  }
-  if(! "Charged Off" %in% c){
-    col_names <- colnames(t)
-    t <- cbind(t, 0)
-    colnames(t) <- c(col_names, "Charged Off")
-  }
-  if(! "Fully Paid" %in% r){
-    row_names <- rownames(t)
-    t <- rbind(t, 0)
-    rownames(t) <- c(row_names, "Fully Paid")
-  }
-  if(! "Charged Off" %in% r){
-    row_names <- rownames(t)
-    t <- rbind(t, 0)
-    rownames(t) <- c(row_names, "Charged Off")
-  }
-  
-  res <- (t["Charged Off", "Charged Off"]+t["Fully Paid", "Fully Paid"]) / sum(t)
-  return(res)
-}
-
-# on fixe la graine
-set.seed(0)
-n_data_set <- 50000
-row_data_set <- sample(1:nrow(loan_all),n_data_set)
-
-# on réduit le data set
-loan5 <- loan_all[row_data_set,]
-
-# on divise le data set en 2 (qualibrage des modèles / choix du modèle)
-
-loan5_num <- explode_factor(loan5)
-
-set.seed(0)
-intrain <- createDataPartition(y = loan5_num$loan_status, p= 0.7, list = FALSE)
-training <- loan5_num[intrain,]
-testing <- loan5_num[-intrain,]
-
 library(caret)
+library(MLmetrics)
 library(doParallel)
-cl <- makeCluster(3)
-registerDoParallel(cl)
+library(plotly)
+library(webshot)
+library(ROSE)
 
-# Avec caret + parallelisation
+tune_up
+
+# load dataset
+dta_ <- readRDS("C:/Users/sebde/OneDrive/Documents/cepe-2018-kickclub/Data/loan5.RDS")
+# comment <- "grade - addr_state - issue_y - purpose - acc_now-delinq"
+comment <- ""
+# excl <- which(colnames(dta_) %in% c("issue_y", "addr_state", "grade", "purpose", "acc_now_delinq"))
+# dta_ <- dta_[,-excl]
+
+# reduction individus dataset
+sampling_factor=0.01
+
+set.seed(17)
+dta_sample_index <- createDataPartition(dta_$loan_status, p = sampling_factor, list = FALSE, times = 1)
+dta_sample <- dta_[dta_sample_index,]
+summary(dta_sample)
+dta_sample <- cbind(dta_sample["loan_status"], as.data.frame(model.matrix(loan_status~. -1, data = dta_sample)))
+
+k_th <- round(sqrt(nrow(dta_sample)))
+
+# les indices pour train set
+train.index <- createDataPartition(dta_sample$loan_status, p = .66, list = FALSE, times = 1)
+
+# n1 <- sum(dta_sample$loan_status == "CO")
+# n2 <- sum(dta_sample$loan_status == "FP")
+# train.index <- c(sample(which(dta_sample$loan_status == "CO"), round(2*n1/3)),
+#                 sample(which(dta_sample$loan_status == "FP"), round(1*n2/3)))
+# 
+# table(dta_sample[train.index,"loan_status"])/nrow(dta_sample[train.index,])
+
+# sinon
+dta_.train <- data.frame(dta_sample[train.index,])
+dta_.test <- data.frame(dta_sample[-train.index,])
+
+dta_.train.rose <- ROSE(loan_status ~ ., data = dta_.train, seed = 1)$data
+
+# training model
+k_cv_sampling = 10
+# k_list <- c(seq(1, round(4/5*k_th-1), 10),seq(round(4/5*k_th), round(6/5*k_th), 1), seq(6/5*k_th+1, 4*k_th, 10))
+
+k_list <- seq(1, 4*k_th, 1)
+length(k_list)
+
+details <- paste(comment, "_k ", min(k_list), " - ", max(k_list), sep = "")
+details <- paste(details, "_n ", nrow(dta_sample), sep = "")
+
+# seq de k
+gridsearch <- expand.grid(k=k_list)
+
+# NONE
+detectCores() # nombre de coeurs sur la machine
+cluster <- makeCluster(detectCores() - 1) # par convention on laisse un coeur pour l'OS
+registerDoParallel(cluster)
+
+objControl_none <- trainControl(method="cv",
+                                number= k_cv_sampling,
+                                returnResamp='none',
+                                summaryFunction = prSummary,
+                                # classProbs = TRUE,
+                                allowParallel = TRUE)
+
 ptm <- proc.time()
-paramgrid = data.frame(k=seq(10,150,by=10))
-trctrl <- trainControl(method = "cv", number = 10, allowParallel = TRUE)
-set.seed(0)
-knn_fit <- train(loan_status ~., data = training, method = "knn",
-                 trControl=trctrl,
-                 preProcess = c("center", "scale"),
-                 tuneGrid = paramgrid)
-proc.time() - ptm
+tune_none <- train(loan_status ~ .,
+              data = dta_.train,
+              method = "knn",
+              tuneGrid=gridsearch,
+              trControl=objControl_none,
+              preProcess = c("center", "scale"),
+              metric='F')
+proc.time()-ptm
 
-stopCluster(cl)
+stopCluster(cluster)
 
-saveRDS(knn_fit, "C:/Users/sebde/Documents/Cours/CEPE Data Scientist/Atelier/data/lending_club_2/knn_fit_1_to_10_cv_10.RDS")
+# ROSE
+# detectCores() # nombre de coeurs sur la machine
+# cluster <- makeCluster(detectCores() - 1) # par convention on laisse un coeur pour l'OS
+# registerDoParallel(cluster)
+# 
+# objControl_none <- trainControl(method="cv",
+#                                 number= k_cv_sampling,
+#                                 returnResamp='none',
+#                                 summaryFunction = prSummary,
+#                                 # classProbs = TRUE,
+#                                 allowParallel = TRUE)
+# 
+# ptm <- proc.time()
+# tune_rose <- train(loan_status ~ .,
+#                    data = dta_.train.rose,
+#                    method = "knn",
+#                    tuneGrid=gridsearch,
+#                    trControl=objControl_none,
+#                    preProcess = c("center", "scale"),
+#                    metric='F')
+# proc.time()-ptm
+# 
+# stopCluster(cluster)
 
-knn_pred <- predict(knn_fit, loan_all_num[,-1])
 
+# UP
+detectCores() # nombre de coeurs sur la machine
+cluster <- makeCluster(detectCores() - 1) # par convention on laisse un coeur pour l'OS
+registerDoParallel(cluster)
 
-plot(knn_fit)
-confusionMatrix(knn_fit)
+objControl_up <- trainControl(method="cv",
+                              number= k_cv_sampling,
+                              returnResamp='none',
+                              summaryFunction = prSummary,
+                              # classProbs = TRUE,  
+                              allowParallel = TRUE,
+                              sampling = 'up')
 
-
-# caret + sampling up
-cl <- makeCluster(3)
-registerDoParallel(cl)
 ptm <- proc.time()
-trctrl <- trainControl(method = "cv", number = 10, allowParallel = TRUE, sampling = "up")
-set.seed(0)
-knn_fit <- train(loan_status ~., data = training, method = "knn",
-                 trControl=trctrl,
-                 preProcess = c("center", "scale"),
-                 tuneGrid = paramgrid)
-proc.time() - ptm
+tune_up <- train(loan_status ~ .,
+              data = dta_.train,
+              method = "knn",
+              tuneGrid=gridsearch,
+              trControl=objControl_up,
+              preProcess = c("center", "scale"),
+              metric='F')
+proc.time()-ptm
 
-saveRDS(knn_fit, "C:/Users/sebde/Documents/Cours/CEPE Data Scientist/Atelier/data/lending_club_2/knn_fit_10_to_150_cv_10_resampling.RDS")
-stopCluster(cl)
+stopCluster(cluster)
+
+# DOWN
+detectCores() # nombre de coeurs sur la machine
+cluster <- makeCluster(detectCores() - 1) # par convention on laisse un coeur pour l'OS
+registerDoParallel(cluster)
+
+objControl_down <- trainControl(method="cv",
+                                number= k_cv_sampling,
+                                returnResamp='none',
+                                summaryFunction = prSummary,
+                                # classProbs = TRUE,
+                                allowParallel = TRUE,
+                                sampling = 'down')
+
+# parametrage modèle (dépendant des modèles)
+
+ptm <- proc.time()
+tune_down <- train(loan_status ~ .,
+              data = dta_.train,
+              method = "knn",
+              tuneGrid=gridsearch,
+              trControl=objControl_down,
+              preProcess = c("center", "scale"),
+              metric='F')
+proc.time()-ptm
+
+stopCluster(cluster)
+
+plt <- plot_ly(mode = "lines", type = 'scatter') %>%
+  add_trace(data = tune_none$results, x = ~k, y = ~F, line = list(color = c("green")), name = "none") %>%
+  add_trace(data = tune_up$results, x = ~k, y = ~F, line = list(color = c("red")), name = "up") %>%
+  add_trace(data = tune_down$results, x = ~k, y = ~F, line = list(color = c("blue")), name = "down")
+
+plt
+
+saveRDS(tune_none, paste("C:/Users/sebde/OneDrive/Documents/cepe-2018-kickclub/Model/SDE_knn_none", details, ".RDS", sep = ""))
+# saveRDS(tune_rose, paste("C:/Users/sebde/OneDrive/Documents/cepe-2018-kickclub/Model/SDE_rose", details, ".RDS", sep = ""))
+saveRDS(tune_up, paste("C:/Users/sebde/OneDrive/Documents/cepe-2018-kickclub/Model/SDE_knn_up", details, ".RDS", sep = ""))
+saveRDS(tune_down, paste("C:/Users/sebde/OneDrive/Documents/cepe-2018-kickclub/Model/SDE_knn_down", details, ".RDS", sep = ""))
+
+# export(p = plt, file = paste("C:/Users/sebde/OneDrive/Documents/cepe-2018-kickclub/SDE/knn_", details, ".png", sep = ""))
+
+confusionMatrix(tune_none)
+# confusionMatrix(tune_rose)
+confusionMatrix(tune_up)
+confusionMatrix(tune_down)
+
+pred_none <- relevel(predict(tune_none, newdata = dta_.test), "CO")
+# pred_rose <- relevel(predict(tune_rose, newdata = dta_.test), "CO")
+pred_up <- relevel(predict(tune_up, newdata = dta_.test), "CO")
+pred_down <- relevel(predict(tune_down, newdata = dta_.test), "CO")
+
+knn_none_cm <- confusionMatrix(predict(tune_none, newdata = dta_.test), dta_.test$loan_status)
+# confusionMatrix(predict(tune_rose, newdata = dta_.test), dta_.test$loan_status)
+knn_up_cm <- confusionMatrix(predict(tune_up, newdata = dta_.test), dta_.test$loan_status)
+knn_down_cm <- confusionMatrix(predict(tune_down, newdata = dta_.test), dta_.test$loan_status)
+
+attributes(knn_none_cm)
 
 
-# sélection de variable
-# 1. le gros nettoyage
-# 2. separation corel + factor
-
-# ==> pdf
-# expliquer la diminution du set
-
-# est-ce qu'on peut prédire le défaut?
 
 
-# filtrage loan_status
-# echantillonnage
-# equilibré et pas
-
-# modèle
-# glm: eric
-# glmnet: eric
-# lda: eric
-# qda: eric
-# knn: sebd
-# rpart: guillaume
-# bagging: sebL
-# randomForest: sebL
-# boosting: sebL
-# svm: guillaume
+saveRDS(knn_none_cm, "C:/Users/sebde/OneDrive/Documents/cepe-2018-kickclub/Shiny/model/knn_none_cm.RDS")
+saveRDS(knn_up_cm, "C:/Users/sebde/OneDrive/Documents/cepe-2018-kickclub/Shiny/model/knn_up_cm.RDS")
+saveRDS(knn_down_cm, "C:/Users/sebde/OneDrive/Documents/cepe-2018-kickclub/Shiny/model/knn_down_cm.RDS")
