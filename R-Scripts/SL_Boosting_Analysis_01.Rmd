@@ -69,7 +69,7 @@ table(dta_.train.y)/sum(table(dta_.train.y))
 table(dta_.test.y)/sum(table(dta_.test.y))
 ```
 
-Train Launch Samplin None
+Train Launch Sampling None
 ```{r}
 
 #getModelInfo(model_type)
