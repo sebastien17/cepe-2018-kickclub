@@ -1,0 +1,276 @@
+---
+title: "Results Summaries Notebook"
+output: html_notebook
+---
+
+CE script permet de creer une matrice de resultats ('results') a partir des donnees (cf. 'Chargement de l'environnement') et des modeles prealablement sauves (de class 'train' 'train.formula') et declines en 3 versions de re-sampling /re-equilibrage des observations ('none', 'up', 'down').
+
+
+# Set path
+```{r}
+dirpath <- "C:/Users/Eric/Documents/Eric/Pro/Transition/Formation/R Projects/cepe-2018-kickclub/Model" 
+```
+
+# Chargement de l'environnement
+Recuperation des donnees echantillonnees pour 
+- generer les previsions (predict) et les metriques: accuracy, Kappa, F-meas, Sensitivity, Specificity, ...
+- calculer les probabilites et l'AUC
+sans avoir besoin de les generer a nouveau
+
+```{r}
+setwd("C:/Users/Eric/Documents/Eric/Pro/Transition/Formation/R Projects/cepe-2018-kickclub/Data") 
+# save.image(file = "working_data_envt")
+load(file = "working_data_envt")
+```
+
+
+# Fichier 'results' pre-existant: Ouverture de 'results'
+Le fichier 'results' a deja ete sauve: on peut l'ouvrir pour visulaiser les resultats
+```{r}
+## 
+results.filename <- "EC_LDA_01_results.mod"
+results <- readRDS(paste0(dirpath,"/",results.filename))
+```
+
+# Fichier 'results' n'a pas encore ete cree: suivre toutes les etapes: Creation du fichier results
+
+```{r}
+# Set a list to receive the estimated models
+train_results = list()
+# nom du type de modele ajoute dans les graphes
+model_type <- "logit_boost"
+# nom generique qui sera utiise dans le nom du fichier results sauve a la fin
+train_results_name = "EC_Logitboost_02"
+# nom des fichiers de modeles seja sauves, et qu'on va ouvrir pour generer results:
+filename_none <- "EC_Logitboost_02_none.mod" # ne pas oublier le suffixe '.mod' 
+filename_up <- "EC_Logitboost_02_up.mod"
+filename_down <- "EC_Logitboost_02_down.mod"   
+
+# Saisir le nom des modeles
+train_results[["none"]] <- readRDS(paste0(dirpath,"/",filename_none))   # model.glmnet_cv
+train_results[["up"]] <- readRDS(paste0(dirpath,"/",filename_up))       # model.glmnet_cv_up
+train_results[["down"]] <- readRDS(paste0(dirpath,"/",filename_down))   # model.glmnet_cv_dn
+
+for (samp_ in c("none","up","down")) { 
+  print(train_results[[samp_]])
+  paste('Best tune : ', train_results[[samp_]]$bestTune)
+}
+```
+
+```{r echo = TRUE}
+plot(train_results[["none"]], main = paste0(model_type, " sampling re-equilibre : none"))
+plot(train_results[["up"]], main = paste0(model_type, " sampling re-equilibre : up"))
+plot(train_results[["down"]], main = paste0(model_type, " sampling re-equilibre : down"))
+```
+
+# Set up d'une matrice de resultats
+
+```{r}
+results <- matrix(, nrow = 7, ncol = 3)
+colnames(results) <- c("none", "up", "down")
+rownames(results) <- c("Accuracy", "Kappa", "F-measure", "Sensitivity", "Specificity", "Precision / posPredValue", "negPredValue")
+```
+
+# Predictions Sampling None
+
+```{r echo=TRUE}
+samp_ <- "none"
+samp_
+plot(train_results[[samp_]])
+plot(train_results[[samp_]], metric = 'AUC')
+paste('Best tune : ', train_results[[samp_]]$bestTune) 
+prediction <- predict(object = train_results[[samp_]], dta_.test.x, type = "raw") 
+# Error when using: 'object = train_results[[samp_]]$finalModel': "no applicable method for 'predict' applied to an object of class "LogitBoost" "
+head(prediction)
+conf_matrix <- confusionMatrix(prediction, dta_.test.y)
+conf_matrix
+cm.plot(conf_matrix$table)
+plot(varImp(train_results[[samp_]]), main = paste0("Variable Importance: ", model_type, " sampling = ", samp_))
+# Remplissage de la matrice de resultats: 'results'
+results["Accuracy", samp_] <- round(conf_matrix$overall[["Accuracy"]],4)
+results["Kappa", samp_] <- round(conf_matrix$overall[["Kappa"]],4)
+results["F-measure", samp_] <- round(F_meas(data = prediction, reference = dta_.test.y),4)
+results["Sensitivity", samp_] <- round(sensitivity(data = prediction, reference = dta_.test.y),4)
+results["Specificity", samp_] <- round(specificity(data = prediction, reference = dta_.test.y),4)
+results["Precision / posPredValue", samp_] <- round(precision(data = prediction, reference = dta_.test.y),4)
+results["negPredValue", samp_] <- round(negPredValue(data = prediction, reference = dta_.test.y),4)
+```
+
+# Predictions Sampling "up"
+
+```{r echo=TRUE}
+samp_ <- "up"
+samp_
+plot(train_results[[samp_]])
+plot(train_results[[samp_]], metric = 'AUC')
+paste('Best tune : ', train_results[[samp_]]$bestTune) 
+prediction <- predict(object = train_results[[samp_]], dta_.test.x, type = "raw") 
+# Error when using: 'object = train_results[[samp_]]$finalModel': "no applicable method for 'predict' applied to an object of class "LogitBoost" "
+head(prediction)
+conf_matrix <- confusionMatrix(prediction, dta_.test.y)
+conf_matrix
+cm.plot(conf_matrix$table)
+plot(varImp(train_results[[samp_]]), main = paste0("Variable Importance: ", model_type, " sampling = ", samp_))
+# Remplissage de la matrice de resultats: 'results'
+results["Accuracy", samp_] <- round(conf_matrix$overall[["Accuracy"]],4)
+results["Kappa", samp_] <- round(conf_matrix$overall[["Kappa"]],4)
+results["F-measure", samp_] <- round(F_meas(data = prediction, reference = dta_.test.y),4)
+results["Sensitivity", samp_] <- round(sensitivity(data = prediction, reference = dta_.test.y),4)
+results["Specificity", samp_] <- round(specificity(data = prediction, reference = dta_.test.y),4)
+results["Precision / posPredValue", samp_] <- round(precision(data = prediction, reference = dta_.test.y),4)
+results["negPredValue", samp_] <- round(negPredValue(data = prediction, reference = dta_.test.y),4)
+```
+
+# Predictions Sampling "down"
+
+```{r echo=TRUE}
+samp_ <- "down"
+samp_
+plot(train_results[[samp_]])
+plot(train_results[[samp_]], metric = 'AUC')
+paste('Best tune : ', train_results[[samp_]]$bestTune) 
+prediction <- predict(object = train_results[[samp_]], dta_.test.x, type = "raw") 
+# Error when using: 'object = train_results[[samp_]]$finalModel': "no applicable method for 'predict' applied to an object of class "LogitBoost" "
+head(prediction)
+conf_matrix <- confusionMatrix(prediction, dta_.test.y)
+conf_matrix
+cm.plot(conf_matrix$table)
+plot(varImp(train_results[[samp_]]), main = paste0("Variable Importance: ", model_type, " sampling = ", samp_))
+# Remplissage de la matrice de resultats: 'results'
+results["Accuracy", samp_] <- round(conf_matrix$overall[["Accuracy"]],4)
+results["Kappa", samp_] <- round(conf_matrix$overall[["Kappa"]],4)
+results["F-measure", samp_] <- round(F_meas(data = prediction, reference = dta_.test.y),4)
+results["Sensitivity", samp_] <- round(sensitivity(data = prediction, reference = dta_.test.y),4)
+results["Specificity", samp_] <- round(specificity(data = prediction, reference = dta_.test.y),4)
+results["Precision / posPredValue", samp_] <- round(precision(data = prediction, reference = dta_.test.y),4)
+results["negPredValue", samp_] <- round(negPredValue(data = prediction, reference = dta_.test.y),4)
+```
+
+```{r}
+results
+```
+
+# Ajout de l'AUC de la ROC curve
+
+```{r}
+library(pROC)
+res.auc <- matrix(,nrow = 1, ncol = 3)
+colnames(res.auc) <- c("none","up","down")
+rownames(res.auc) <- "AUC"
+
+for (samp_ in c("none","up","down")) { 
+  
+  probabilite <- predict(object = train_results[[samp_]], dta_.test.x, type = "prob")
+  roc_input <- data.frame(predictor = probabilite["CO"], response = as.factor(ifelse(dta_.test.y == "CO",1,0)))
+  colnames(roc_input) <- c("predictor", "response")
+  res.auc[1,samp_] <- pROC::roc(response = roc_input$response, predictor = roc_input$predictor)$auc
+  res.auc <- round(res.auc, 4)
+
+}
+res.auc
+results <- rbind(results, res.auc)
+results
+```
+
+
+# Saving Train results 
+
+```{r}
+# Ne pas executer si les modeles sont deja sauves
+#for (samp_ in c("none","up","down")) { 
+#  saveRDS(train_results[[samp_]], paste0(dirpath,"/",train_results_name,"_", samp_,".mod"))
+#}
+# Sauver le results summary 
+saveRDS(results, paste0(dirpath,"/",train_results_name,"_results",".mod"))
+```
+
+
+# Inside the ROC curve 
+====================================================
+
+# Retrouver les Coordonnes d'une ROC Curve 
+- Coordonnees de la ROC Curve Sensitivity vs. Specificity 
+- Plot manuel de la ROC curve
+```{r}
+# Charger un modele au choix
+my_model <- "SL_RF_01_down.mod" 
+modele <- readRDS(paste0(dirpath,"/",my_model))
+
+probabilite <- predict(object = modele, dta_.test.x, type = "prob")
+roc_df <- data.frame(predictor = probabilite["CO"], response = as.factor(ifelse(dta_.test.y == "CO",1,0)))
+colnames(roc_df) <- c("predictor", "response")
+
+roc_train <- pROC::roc(response = roc_df$response, predictor = roc_df$predictor)
+coords(roc_train, x = "all")
+my.cutoff <- seq(0.1,0.9,0.05)
+coords_details <- round(coords(roc_train, c(-Inf, sort(my.cutoff), Inf), input = "threshold", ret = c("specificity", "sensitivity")),2)
+coords_details
+
+# on peut donc retracer la ROC curve
+plot(coords_details["specificity",], coords_details["sensitivity",], 
+     xlim = c(1, 0), type = "l", col = 'blue',
+     xlab = "Specificity", ylab = "Sensitivity")
+legend("bottomright", legend = paste(my_model), col = c("blue"), lty = 1, cex = 0.8)
+# calcul de l'AUC avec trapz
+# library(caTools)
+# trapz(coords_details["specificity",], coords_details["sensitivity",])
+```
+
+# Metrics vs. Seuils de Probabilite
+
+- Choix modele
+```{r}
+# Charger un modele au choix
+
+# my_model <- "SL_RF_01_down.mod" 
+# modele <- readRDS(paste0(dirpath,"/",my_model))
+
+# Reprise du 'modele' definit precedemment 
+probabilite <- predict(object = modele, dta_.test.x, type = "prob")
+actual = dta_.test.y
+```
+
+- Creation d'une fonction semblable a la ROC curve mais avec tous les autres metrics du modele
+pour suivre l'evolution des metrics cles pour les differents niveaux de probabilite seuil
+```{r}
+# Fonction 'fake.ROC()'
+fake.ROC <- function(probabilite, actual, liste_seuils = seq(0.1, 0.9, 0.1)) {
+  
+  res.final <- matrix(,nrow = 7, ncol = 1)
+  colnames(res.final) <- 0
+  rownames(res.final) <- c("Accuracy", "Kappa", "F-measure", "Sensitivity", "Specificity", "Precision / posPredValue", "negPredValue")
+  
+  for (threshold in liste_seuils) {
+  
+    res <- matrix(,nrow = 7, ncol = 1)
+    colnames(res) <- threshold
+    rownames(res) <- c("Accuracy", "Kappa", "F-measure", "Sensitivity", 
+                         "Specificity", "Precision / posPredValue", "negPredValue")
+    
+    if (threshold < max(probabilite[,1]) & threshold > min(probabilite[,1])) {
+      
+      prediction.prob <- ifelse(probabilite[,1] > threshold, "CO", "FP")
+      conf_matrix <- confusionMatrix(as.factor(prediction.prob), actual)
+      # Remplissage de la matrice de resultats:
+      res["Accuracy",1] <- round(conf_matrix$overall[["Accuracy"]],4)
+      res["Kappa", 1] <- round(conf_matrix$overall[["Kappa"]],4)
+      res["F-measure", 1] <- round(F_meas(data = as.factor(prediction.prob), reference = actual),4)
+      res["Sensitivity", 1] <- round(sensitivity(data = as.factor(prediction.prob), reference = actual),4)
+      res["Specificity", 1] <- round(specificity(data = as.factor(prediction.prob), reference = actual),4)
+      res["Precision / posPredValue", 1] <- round(precision(data = as.factor(prediction.prob), reference = actual),4)
+      res["negPredValue", 1] <- round(negPredValue(data = as.factor(prediction.prob), reference = actual),4)
+    }
+    
+    res.final <- cbind(res.final, res)
+    
+  }
+  
+  return(res.final)
+}
+```
+
+- Appel de la fonction
+```{r}
+fake.ROC(probabilite = probabilite, actual = actual)
+# rm(threshold, prediction.prob, liste_seuils, res, res.final, conf_matrix, probabilite, actual)
+```
