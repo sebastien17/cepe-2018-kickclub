@@ -4,6 +4,8 @@ library(plotly)
 dirpath <- "C:/Users/Eric/Documents/Eric/Pro/Transition/Formation/CEPE ENSAE ENSAI Certificat Data Scientist/INTENSIVE/PROJETS/KickClub Project/Lending Club/LC0715"
 dirpath2 <- "C:/Users/Eric/Documents/Eric/Pro/Transition/Formation/R Projects/cepe-2018-kickclub/Shiny"
 
+Results_list <- list()
+
 loan <- readRDS(paste0(dirpath,"/loan5.RDS"))
 cl <- sapply(loan, class)
 fact <- sort(colnames(loan)[which(cl == "factor")])
@@ -37,15 +39,21 @@ RF_models = list("none" = readRDS(paste0(dirpath2,"/model/SL_RF_01_none.mod")),
                  "up" = readRDS(paste0(dirpath2,"/model/SL_RF_01_up.mod")),
                  "down" = readRDS(paste0(dirpath2,"/model/SL_RF_01_down.mod")))
 
+RF <- readRDS(paste0(dirpath2,"/model/SL_RF_01_results.mod"))
+
 #Adaboost Specific part
 AB_models = list("none" = readRDS(paste0(dirpath2,"/model/SL_Adaboost_01_none.mod")),
                  "up" = readRDS(paste0(dirpath2,"/model/SL_Adaboost_01_up.mod")),
                  "down" = readRDS(paste0(dirpath2,"/model/SL_Adaboost_01_down.mod")))
 
+AB <- readRDS(paste0(dirpath2,"/model/SL_Adaboost_01_results.mod"))
 
 #Merge models
 models_list[["RF"]] <- RF_models
 models_list[["AB"]] <- AB_models
+
+Results_list[["RF"]] <- RF
+Results_list[["AB"]] <- AB
 
 ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
 ############################################# SL ##############################################
@@ -54,7 +62,7 @@ models_list[["AB"]] <- AB_models
 ############################################ EC ##############################################
 ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
 
-Results_list <- list()
+# Results_list <- list()  # deplace en haut pour permettre inclusion AB et RF
 
 #GLMNET Bootsrap: Specific part
 GLMNET_BOOT_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_GLMNET_BOOT_01_none.mod")),
@@ -70,13 +78,31 @@ GLMNET_CV_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_GLMNET_CV_0
 
 GLMNET_CV <- readRDS(paste0(dirpath2,"/model/EC_GLMNET_CV_01_results.mod"))
 
+#KNN sans eclamtement des modalites et sans sclaing: Specific part
+KNN_EC_01_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_KNN_01_none.mod")),
+                         "up" = readRDS(paste0(dirpath2,"/model/EC_KNN_01_up.mod")),
+                         "down" = readRDS(paste0(dirpath2,"/model/EC_KNN_01_down.mod")))
+
+KNN_EC_01 <- readRDS(paste0(dirpath2,"/model/EC_KNN_01_results.mod"))
+
+#KNN sans eclamtement des modalites et sans sclaing: Specific part
+KNN_EC_02_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_KNN_02_none.mod")),
+                         "up" = readRDS(paste0(dirpath2,"/model/EC_KNN_02_up.mod")),
+                         "down" = readRDS(paste0(dirpath2,"/model/EC_KNN_02_down.mod")))
+
+KNN_EC_02 <- readRDS(paste0(dirpath2,"/model/EC_KNN_02_results.mod"))
+
 #Merge models
 models_list[["GLMNET_BOOT"]] <- GLMNET_BOOT_models
 models_list[["GLMNET_CV"]] <- GLMNET_CV_models
+models_list[["KNN_EC_01"]] <- KNN_EC_01_models
+models_list[["KNN_EC_02"]] <- KNN_EC_02_models
 
 #Merge models' results
 Results_list[["GLMNET_BOOT"]] <- GLMNET_BOOT
 Results_list[["GLMNET_CV"]] <- GLMNET_CV
+Results_list[["KNN_EC_01"]] <- KNN_EC_01
+Results_list[["KNN_EC_02"]] <- KNN_EC_02
 
 ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
 ############################################# EC ##############################################
@@ -140,16 +166,19 @@ ui <- fluidPage(
              plotlyOutput("SL_f_measure_RF"),
              fluidRow(
                column(4,
-                      div(style="text-align:center","Down"),
+                      div(style = "text-align:center","Down"),
                       verbatimTextOutput("SL_RF_confusion_matrix_down")
                ),
                column(4,
-                      div(style="text-align:center","None"),
+                      div(style = "text-align:center","None"),
                       verbatimTextOutput("SL_RF_confusion_matrix_none")
                ),
                column(4,
-                      div(style="text-align:center","Up"),
+                      div(style = "text-align:center","Up"),
                       verbatimTextOutput("SL_RF_confusion_matrix_up")
+               ),column(4,
+                        div(style = "text-align:center","Key Performance Metrics"),
+                        verbatimTextOutput("SL_RF_results")
                ))
     ),
     
@@ -167,6 +196,9 @@ ui <- fluidPage(
                column(4,
                       div(style="text-align:center","Up"),
                       verbatimTextOutput("SL_AB_confusion_matrix_up")
+               ),column(4,
+                        div(style = "text-align:center","Key Performance Metrics"),
+                        verbatimTextOutput("SL_AB_results")
                ))
     ),
     
@@ -228,6 +260,84 @@ ui <- fluidPage(
                column(4,
                       div(style = "text-align:center","Key Performance Metrics"),
                       verbatimTextOutput("EC_GLMNET_CV_results")
+               ),
+               column(4,
+                      div(style = "text-align:center","Model infos","down"),
+                      verbatimTextOutput("EC_GLMNET_CV_infos_down")
+               ),
+               column(4,
+                      div(style = "text-align:center","Model infos","none"),
+                      verbatimTextOutput("EC_GLMNET_CV_infos_none")
+               ),
+               column(4,
+                      div(style = "text-align:center","Model infos", "up"),
+                      verbatimTextOutput("EC_GLMNET_CV_infos_up")
+               ))
+    ),
+    
+    tabPanel("KNN EC 01",
+             plotlyOutput("EC_f_measure_KNN_EC_01"),
+             fluidRow(
+               #column(4,
+               #       div(style = "text-align:center","Down"),
+               #       verbatimTextOutput("EC_KNN_01_confusion_matrix_down")
+               #),
+               #column(4,
+               #       div(style = "text-align:center","None"),
+               #       verbatimTextOutput("EC_KNN_01_confusion_matrix_none")
+               #),
+               #column(4,
+               #       div(style = "text-align:center","Up"),
+               #       verbatimTextOutput("EC_KNN_01_confusion_matrix_up")
+               #),
+               column(4,
+                      div(style = "text-align:center","Key Performance Metrics"),
+                      verbatimTextOutput("EC_KNN_01_results")
+               ),
+               column(4,
+                      div(style = "text-align:center","Model infos","down"),
+                      verbatimTextOutput("EC_KNN_01_infos_down")
+               ),
+               column(4,
+                      div(style = "text-align:center","Model infos","none"),
+                      verbatimTextOutput("EC_KNN_01_infos_none")
+               ),
+               column(4,
+                      div(style = "text-align:center","Model infos", "up"),
+                      verbatimTextOutput("EC_KNN_01_infos_up")
+               ))
+    ),
+    
+    tabPanel("KNN EC 02",
+             plotlyOutput("EC_f_measure_KNN_EC_02"),
+             fluidRow(
+               #column(4,
+               #       div(style = "text-align:center","Down"),
+               #       verbatimTextOutput("EC_KNN_02_confusion_matrix_down")
+               #),
+               #column(4,
+               #       div(style = "text-align:center","None"),
+               #       verbatimTextOutput("EC_KNN_02_confusion_matrix_none")
+               #),
+               #column(4,
+               #       div(style = "text-align:center","Up"),
+               #       verbatimTextOutput("EC_KNN_02_confusion_matrix_up")
+               #),
+               column(4,
+                      div(style = "text-align:center","Key Performance Metrics"),
+                      verbatimTextOutput("EC_KNN_02_results")
+               ),
+               column(4,
+                      div(style = "text-align:center","Model infos","down"),
+                      verbatimTextOutput("EC_KNN_02_infos_down")
+               ),
+               column(4,
+                      div(style = "text-align:center","Model infos","none"),
+                      verbatimTextOutput("EC_KNN_02_infos_none")
+               ),
+               column(4,
+                      div(style = "text-align:center","Model infos", "up"),
+                      verbatimTextOutput("EC_KNN_02_infos_up")
                ))
     )
     
@@ -351,6 +461,7 @@ server <- function(input, output) {
              yaxis = list(title = "F-measure"))
   })
   
+  output$SL_RF_results <- renderPrint(Results_list[["RF"]])
   output$SL_RF_confusion_matrix_down <- renderPrint(models_list[["RF"]][["down"]])
   output$SL_RF_confusion_matrix_none <- renderPrint(models_list[["RF"]][["none"]])
   output$SL_RF_confusion_matrix_up <- renderPrint(models_list[["RF"]][["up"]])
@@ -365,6 +476,7 @@ server <- function(input, output) {
              yaxis = list(title = "F-measure"))
   })
   
+  output$SL_AB_results <- renderPrint(Results_list[["AB"]])
   output$SL_AB_confusion_matrix_down <- renderPrint(models_list[["AB"]][["down"]])
   output$SL_AB_confusion_matrix_none <- renderPrint(models_list[["AB"]][["none"]])
   output$SL_AB_confusion_matrix_up <- renderPrint(models_list[["AB"]][["up"]])
@@ -382,16 +494,17 @@ server <- function(input, output) {
       add_trace(data = models_list[["GLMNET_BOOT"]][["up"]]$results, x = ~alpha, z = ~F, y = ~lambda, line = list(color = c("red")), name = "up") %>%
       add_trace(data = models_list[["GLMNET_BOOT"]][["down"]]$results, x = ~alpha, z = ~F, y = ~lambda, line = list(color = c("blue")), name = "down") %>%
       layout(xaxis = list(title = "Alpha", tickangle = -45),
-             yaxis = list(title = "F-measure"))
+             yaxis = list(title = "Lambda"),
+             zaxis = list(title = "F-measure"))
   })
   
   output$EC_GLMNET_BOOT_results <- renderPrint(Results_list[["GLMNET_BOOT"]])
   output$EC_GLMNET_BOOT_infos_down <- renderPrint(models_list[["GLMNET_BOOT"]][["down"]])
   output$EC_GLMNET_BOOT_infos_none <- renderPrint(models_list[["GLMNET_BOOT"]][["none"]])
   output$EC_GLMNET_BOOT_infos_up <- renderPrint(models_list[["GLMNET_BOOT"]][["up"]])
-  #output$SL_RF_confusion_matrix_down <- renderPrint(models_list[["RF"]][["down"]])
-  #output$SL_RF_confusion_matrix_none <- renderPrint(models_list[["RF"]][["none"]])
-  #output$SL_RF_confusion_matrix_up <- renderPrint(models_list[["RF"]][["up"]])
+  #output$EC_GLMNET_BOOT_confusion_matrix_down <- renderPrint(models_list[["GLMNET_BOOT"]][["down"]])
+  #output$EC_GLMNET_BOOT_confusion_matrix_none <- renderPrint(models_list[["GLMNET_BOOT"]][["none"]])
+  #output$EC_GLMNET_BOOT_confusion_matrix_up <- renderPrint(models_list[["GLMNET_BOOT"]][["up"]])
   
   
   output$EC_f_measure_GLMNET_CV <- renderPlotly({
@@ -400,14 +513,56 @@ server <- function(input, output) {
       add_trace(data = models_list[["GLMNET_CV"]][["up"]]$results, x = ~alpha, y = ~lambda, z = ~F, line = list(color = c("red")), name = "up") %>%
       add_trace(data = models_list[["GLMNET_CV"]][["down"]]$results, x = ~alpha, y = ~lambda, z = ~F, line = list(color = c("blue")), name = "down") %>%
       layout(xaxis = list(title = "Alpha", tickangle = -45),
-             yaxis = list(title = "F-measure"))
+             yaxis = list(title = "Lambda"),
+             zaxis = list(title = "F-measure"))
   })
   
   
   output$EC_GLMNET_CV_results <- renderPrint(Results_list[["GLMNET_CV"]])
-  #output$SL_AB_confusion_matrix_down <- renderPrint(models_list[["AB"]][["down"]])
-  #output$SL_AB_confusion_matrix_none <- renderPrint(models_list[["AB"]][["none"]])
-  #output$SL_AB_confusion_matrix_up <- renderPrint(models_list[["AB"]][["up"]])
+  output$EC_GLMNET_CV_infos_down <- renderPrint(models_list[["GLMNET_CV"]][["down"]])
+  output$EC_GLMNET_CV_infos_none <- renderPrint(models_list[["GLMNET_CV"]][["none"]])
+  output$EC_GLMNET_CV_infos_up <- renderPrint(models_list[["GLMNET_CV"]][["up"]])
+  #output$EC_GLMNET_CV_confusion_matrix_down <- renderPrint(models_list[["GLMNET_CV"]][["down"]])
+  #output$EC_GLMNET_CV_confusion_matrix_none <- renderPrint(models_list[["GLMNET_CV"]][["none"]])
+  #output$EC_GLMNET_CV_confusion_matrix_up <- renderPrint(models_list[["GLMNET_CV"]][["up"]])
+  
+  
+  output$EC_f_measure_KNN_EC_01 <- renderPlotly({
+    plt <- plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = models_list[["KNN_EC_01"]][["none"]]$results, x = ~k, y = ~ROC, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = models_list[["KNN_EC_01"]][["up"]]$results, x = ~k, y = ~ROC, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = models_list[["KNN_EC_01"]][["down"]]$results, x = ~k, y = ~ROC, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "K", tickangle = -45),
+             yaxis = list(title = "ROC"))
+  })
+  
+  
+  output$EC_KNN_01_results <- renderPrint(Results_list[["KNN_EC_01"]])
+  output$EC_KNN_01_infos_down <- renderPrint(models_list[["KNN_EC_01"]][["down"]])
+  output$EC_KNN_01_infos_none <- renderPrint(models_list[["KNN_EC_01"]][["none"]])
+  output$EC_KNN_01_infos_up <- renderPrint(models_list[["KNN_EC_01"]][["up"]])
+  #output$EC_KNN_01_confusion_matrix_down <- renderPrint(models_list[["KNN_EC_01"]][["down"]])
+  #output$EC_KNN_01_confusion_matrix_none <- renderPrint(models_list[["KNN_EC_01"]][["none"]])
+  #output$EC_KNN_01_confusion_matrix_up <- renderPrint(models_list[["KNN_EC_01"]][["up"]])
+  
+  
+  output$EC_f_measure_KNN_EC_02 <- renderPlotly({
+    plt <- plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = models_list[["KNN_EC_02"]][["none"]]$results, x = ~k, y = ~ROC, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = models_list[["KNN_EC_02"]][["up"]]$results, x = ~k, y = ~ROC, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = models_list[["KNN_EC_02"]][["down"]]$results, x = ~k, y = ~ROC, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "K", tickangle = -45),
+             yaxis = list(title = "ROC"))
+  })
+  
+  
+  output$EC_KNN_02_results <- renderPrint(Results_list[["KNN_EC_02"]])
+  output$EC_KNN_02_infos_down <- renderPrint(models_list[["KNN_EC_02"]][["down"]])
+  output$EC_KNN_02_infos_none <- renderPrint(models_list[["KNN_EC_02"]][["none"]])
+  output$EC_KNN_02_infos_up <- renderPrint(models_list[["KNN_EC_02"]][["up"]])
+  #output$EC_KNN_02_confusion_matrix_down <- renderPrint(models_list[["KNN_EC_02"]][["down"]])
+  #output$EC_KNN_02_confusion_matrix_none <- renderPrint(models_list[["KNN_EC_02"]][["none"]])
+  #output$EC_KNN_02_confusion_matrix_up <- renderPrint(models_list[["KNN_EC_02"]][["up"]])
   
   
   ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
