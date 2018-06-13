@@ -78,7 +78,7 @@ GLMNET_CV_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_GLMNET_CV_0
 
 GLMNET_CV <- readRDS(paste0(dirpath2,"/model/EC_GLMNET_CV_01_results.mod"))
 
-#KNN sans eclamtement des modalites et sans sclaing: Specific part
+#KNN sans eclatement des modalites et sans scaling: Specific part
 KNN_EC_01_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_KNN_01_none.mod")),
                          "up" = readRDS(paste0(dirpath2,"/model/EC_KNN_01_up.mod")),
                          "down" = readRDS(paste0(dirpath2,"/model/EC_KNN_01_down.mod")))
@@ -92,17 +92,26 @@ KNN_EC_02_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_KNN_02_none
 
 KNN_EC_02 <- readRDS(paste0(dirpath2,"/model/EC_KNN_02_results.mod"))
 
+#KNN sans eclamtement des modalites et sans sclaing: Specific part
+GBM_01_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_GBM_01_none.mod")),
+                         "up" = readRDS(paste0(dirpath2,"/model/EC_GBM_01_up.mod")),
+                         "down" = readRDS(paste0(dirpath2,"/model/EC_GBM_01_down.mod")))
+
+GBM_01 <- readRDS(paste0(dirpath2,"/model/EC_GBM_01_results.mod"))
+
 #Merge models
 models_list[["GLMNET_BOOT"]] <- GLMNET_BOOT_models
 models_list[["GLMNET_CV"]] <- GLMNET_CV_models
 models_list[["KNN_EC_01"]] <- KNN_EC_01_models
 models_list[["KNN_EC_02"]] <- KNN_EC_02_models
+models_list[["GBM_01"]] <- GBM_01_models
 
 #Merge models' results
 Results_list[["GLMNET_BOOT"]] <- GLMNET_BOOT
 Results_list[["GLMNET_CV"]] <- GLMNET_CV
 Results_list[["KNN_EC_01"]] <- KNN_EC_01
 Results_list[["KNN_EC_02"]] <- KNN_EC_02
+Results_list[["GBM_01"]] <- GBM_01
 
 ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
 ############################################# EC ##############################################
@@ -339,6 +348,39 @@ ui <- fluidPage(
                       div(style = "text-align:center","Model infos", "up"),
                       verbatimTextOutput("EC_KNN_02_infos_up")
                ))
+    ),
+    
+    tabPanel("GBM 01",
+             plotlyOutput("EC_f_measure_EC_GBM_01"),
+             fluidRow(
+               #column(4,
+               #       div(style = "text-align:center","Down"),
+               #       verbatimTextOutput("EC_GBM_01_confusion_matrix_down")
+               #),
+               #column(4,
+               #       div(style = "text-align:center","None"),
+               #       verbatimTextOutput("EC_GBM_01_confusion_matrix_none")
+               #),
+               #column(4,
+               #       div(style = "text-align:center","Up"),
+               #       verbatimTextOutput("EC_GBM_01_confusion_matrix_up")
+               #),
+               column(4,
+                      div(style = "text-align:center","Key Performance Metrics"),
+                      verbatimTextOutput("EC_GBM_01_results")
+               ),
+               column(4,
+                      div(style = "text-align:center","Model infos","down"),
+                      verbatimTextOutput("EC_GBM_01_infos_down")
+               ),
+               column(4,
+                      div(style = "text-align:center","Model infos","none"),
+                      verbatimTextOutput("EC_GBM_01_infos_none")
+               ),
+               column(4,
+                      div(style = "text-align:center","Model infos", "up"),
+                      verbatimTextOutput("EC_GBM_01_infos_up")
+               ))
     )
     
     ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
@@ -564,6 +606,25 @@ server <- function(input, output) {
   #output$EC_KNN_02_confusion_matrix_none <- renderPrint(models_list[["KNN_EC_02"]][["none"]])
   #output$EC_KNN_02_confusion_matrix_up <- renderPrint(models_list[["KNN_EC_02"]][["up"]])
   
+  
+  output$EC_f_measure_EC_GBM_01 <- renderPlotly({
+    plt <- plot_ly(mode = "lines", type = 'scatter3d') %>%
+      add_trace(data = models_list[["GBM_01"]][["none"]]$results, x = ~n.trees, y = ~interaction.depth, z = ~F, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = models_list[["GBM_01"]][["up"]]$results, x = ~n.trees, y = ~interaction.depth, z = ~F, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = models_list[["GBM_01"]][["down"]]$results, x = ~n.trees, y = ~interaction.depth, z = ~F, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "n.trees", tickangle = -45),
+             yaxis = list(title = "interaction.depth"),
+             zaxis = list(title = "F"))
+  })
+  
+  
+  output$EC_GBM_01_results <- renderPrint(Results_list[["GBM_01"]])
+  output$EC_GBM_01_infos_down <- renderPrint(models_list[["GBM_01"]][["down"]])
+  output$EC_GBM_01_infos_none <- renderPrint(models_list[["GBM_01"]][["none"]])
+  output$EC_GBM_01_infos_up <- renderPrint(models_list[["GBM_01"]][["up"]])
+  #output$EC_GBM_01_confusion_matrix_down <- renderPrint(models_list[["GBM_01"]][["down"]])
+  #output$EC_GBM_01_confusion_matrix_none <- renderPrint(models_list[["GBM_01"]][["none"]])
+  #output$EC_GBM_01_confusion_matrix_up <- renderPrint(models_list[["GBM_01"]][["up"]])
   
   ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
   ############################################# EC ##############################################
