@@ -4,6 +4,7 @@ library(plotly)
 dirpath <- "C:/Users/Eric/Documents/Eric/Pro/Transition/Formation/CEPE ENSAE ENSAI Certificat Data Scientist/INTENSIVE/PROJETS/KickClub Project/Lending Club/LC0715"
 dirpath2 <- "."
 
+models_list = list()
 Results_list <- list()
 
 loan <- readRDS("./loan.RDS")
@@ -11,20 +12,30 @@ cl <- sapply(loan, class)
 fact <- sort(colnames(loan)[which(cl == "factor")])
 num <- sort(colnames(loan)[which(cl %in% c("integer", "numeric"))])
 
+
 ############################################ SDE ##############################################
 ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
 
-# load model knn
-SDE_knn_tune_none <- readRDS("./model/SDE_knn_none_k 1 - 200_n 2527.RDS")
-SDE_knn_tune_up <- readRDS("./model/SDE_knn_up_k 1 - 200_n 2527.RDS")
-SDE_knn_tune_down <- readRDS("./model/SDE_knn_down_k 1 - 200_n 2527.RDS")
+KNN_0_models <-  list("none" = readRDS("./model/SDE_knn_none_k 1 - 200_n 2527.RDS"),
+                 "up" = readRDS("./model/SDE_knn_up_k 1 - 200_n 2527.RDS"),
+                 "down" = readRDS("./model/SDE_knn_down_k 1 - 200_n 2527.RDS"))
 
-SDE_knn_tune_results <- readRDS("./model/SDE_knn_k 1 - 200_n 2527_results.RDS")
+models_list[["KNN_SD_0"]] <- KNN_0_models
+
+# load model knn
+# SDE_knn_tune_none <- readRDS("./model/SDE_knn_none_k 1 - 200_n 2527.RDS")
+# SDE_knn_tune_up <- readRDS("./model/SDE_knn_up_k 1 - 200_n 2527.RDS")
+# SDE_knn_tune_down <- readRDS("./model/SDE_knn_down_k 1 - 200_n 2527.RDS")
+
+# SDE_knn_tune_results <- readRDS("./model/SDE_knn_k 1 - 200_n 2527_results.RDS")
+
 SDE_knn_tune_roc <- readRDS("./model/SDE_knn_k 1 - 200_n 2527_roc.RDS")
 
 SDE_knn_none_cm <- readRDS("./model/SDE_knn_none_k 1 - 200_n 2527_cm.RDS")
 SDE_knn_up_cm <- readRDS("./model/SDE_knn_up_k 1 - 200_n 2527_cm.RDS")
 SDE_knn_down_cm <- readRDS("./model/SDE_knn_down_k 1 - 200_n 2527_cm.RDS")
+
+Results_list[["KNN_SD_0"]] <- readRDS("./model/SDE_knn_k 1 - 200_n 2527_results.RDS")
 
 ##############################################################################
 
@@ -34,8 +45,6 @@ SDE_knn_down_cm <- readRDS("./model/SDE_knn_down_k 1 - 200_n 2527_cm.RDS")
 
 ############################################ SL ##############################################
 ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
-
-models_list = list()
 
 #RandomForest Specific part
 RF_models = list("none" = readRDS(paste0(dirpath2,"/model/SL_RF_01_none.mod")),
@@ -120,6 +129,36 @@ Results_list[["GBM_01"]] <- GBM_01
 ############################################# EC ##############################################
 
 
+
+
+
+all_measure <- data.frame()
+
+for(mod.name in names(Results_list)){
+  for(sk in c("down", "none", "up")){
+    df <- data.frame()
+    df <- as.data.frame(Results_list[[mod.name]][,sk])
+    colnames(df) <- "measure"
+    df["measure_name"] <- rownames(df)
+    df["sampling_kind"] <- sk
+    df["modele"] <- mod.name
+    
+    all_measure <- rbind(all_measure, df)
+  }
+}
+
+measures <- c("Accuracy",
+              "Kappa",
+              "F-measure",
+              "Sensitivity",
+              "Specificity",
+              "Precision / posPredValue",
+              "negPredValue",
+              "AUC")
+
+measure_method <- as.data.frame(rep("max", length(measures)), row.names = measures)
+colnames(measure_method) <- "method"
+
 ######################  UI DEFINITION #########################################################
 
 ### Define UI for application that draws a histogram
@@ -136,7 +175,7 @@ ui <- fluidPage(
     
      ############################################ SDE ##############################################
      ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
-    
+     
     tabPanel("Variables",
              h2("Variables Quantitatives"),
              fluidRow(
@@ -152,7 +191,28 @@ ui <- fluidPage(
              radioButtons("rb_quali", label = "", choices = fact, inline = TRUE),
              plotlyOutput("graph_quali")
     ),
-    
+    tabPanel("GENERAL",
+             sidebarLayout(
+               sidebarPanel(
+                 radioButtons("measure_name", label = "Criteria", choices = c("Accuracy",
+                                                                              "Kappa",
+                                                                              "F-measure",
+                                                                              "Sensitivity",
+                                                                              "Specificity",
+                                                                              "Precision / posPredValue",
+                                                                              "negPredValue",
+                                                                              "AUC"))
+               ),
+               
+               # Show a plot of the generated distribution
+               mainPanel(
+                 dataTableOutput("best_model_table")
+               )
+             )
+             
+             
+             
+    ),
     tabPanel("KNN 0",
              fluidRow(
                column(8,
@@ -407,20 +467,23 @@ ui <- fluidPage(
                       div(style = "text-align:center","Model infos", "up"),
                       verbatimTextOutput("EC_GBM_01_infos_up")
                ))
-    )
+    ),
     
     ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
     ############################################# EC ##############################################
-    
-    
-    
-  ) # end tabsetPanel(
+ 
+  
+  ############################################ GG ##############################################
+  ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##   
+  
+  tabPanel("AUTRE"
+           
+  )
+)
+)
 
-  ) # end fluidPage(
-
-
-#     )
-# )
+##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+############################################# GG ##############################################
 
 
 ####################### SERVER ####################################################################
@@ -500,12 +563,29 @@ server <- function(input, output) {
     }
   })
   
+  ###### tab GENERAL #####
+  output$best_model_table <- DT::renderDataTable({
+
+    method <- TRUE
+    if(measure_method[input$measure_name, "method"] == "min"){
+      method <- FALSE
+    }
+
+    df_f <- na.omit(all_measure[all_measure[,"measure_name"] == input$measure_name,])
+    row_order <- order(df_f$measure, decreasing = method)
+    df_f_o <- df_f[row_order,]
+
+    datatable(df_f_o, rownames = FALSE, selection = list(selected = c(1), target = 'row'))
+    
+  })
+  
+  
   ###### tab KNN #####
   output$SDE_knn_f_measure <- renderPlotly({
     plot_ly(mode = "lines", type = 'scatter') %>%
-      add_trace(data = SDE_knn_tune_none$results, x = ~k, y = ~F, line = list(color = c("green")), name = "none") %>%
-      add_trace(data = SDE_knn_tune_up$results, x = ~k, y = ~F, line = list(color = c("red")), name = "up") %>%
-      add_trace(data = SDE_knn_tune_down$results, x = ~k, y = ~F, line = list(color = c("blue")), name = "down") %>%
+      add_trace(data = models_list$KNN_SD_0$none$results, x = ~k, y = ~F, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = models_list$KNN_SD_0$up$results, x = ~k, y = ~F, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = models_list$KNN_SD_0$down$results, x = ~k, y = ~F, line = list(color = c("blue")), name = "down") %>%
       layout(xaxis = list(title = "K", tickangle = -45),
              yaxis = list(title = "F-measure"))
   })
@@ -529,7 +609,7 @@ server <- function(input, output) {
   output$SDE_knn_cm_up <- renderPrint(SDE_knn_up_cm)
   
   output$SDE_knn_results <- DT::renderDataTable({
-    datatable(SDE_knn_tune_results, rownames = TRUE)
+    datatable(Results_list$KNN_SD_0, rownames = TRUE)
   })
   
   ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
