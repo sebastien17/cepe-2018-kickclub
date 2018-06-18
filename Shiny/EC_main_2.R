@@ -2,11 +2,11 @@ library(shiny)
 library(plotly)
 
 dirpath <- "C:/Users/Eric/Documents/Eric/Pro/Transition/Formation/CEPE ENSAE ENSAI Certificat Data Scientist/INTENSIVE/PROJETS/KickClub Project/Lending Club/LC0715"
-dirpath2 <- "C:/Users/Eric/Documents/Eric/Pro/Transition/Formation/R Projects/cepe-2018-kickclub/Shiny"
+dirpath2 <- "."
 
 Results_list <- list()
 
-loan <- readRDS(paste0(dirpath,"/loan5.RDS"))
+loan <- readRDS("./loan.RDS")
 cl <- sapply(loan, class)
 fact <- sort(colnames(loan)[which(cl == "factor")])
 num <- sort(colnames(loan)[which(cl %in% c("integer", "numeric"))])
@@ -15,13 +15,16 @@ num <- sort(colnames(loan)[which(cl %in% c("integer", "numeric"))])
 ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
 
 # load model knn
-knn_tune_none <- readRDS(paste0(dirpath2,"/model/SDE_knn_none_k 1 - 200_n 2527.RDS"))
-knn_tune_up <- readRDS(paste0(dirpath2,"/model/SDE_knn_up_k 1 - 200_n 2527.RDS"))
-knn_tune_down <- readRDS(paste0(dirpath2,"/model/SDE_knn_down_k 1 - 200_n 2527.RDS"))
+SDE_knn_tune_none <- readRDS("./model/SDE_knn_none_k 1 - 200_n 2527.RDS")
+SDE_knn_tune_up <- readRDS("./model/SDE_knn_up_k 1 - 200_n 2527.RDS")
+SDE_knn_tune_down <- readRDS("./model/SDE_knn_down_k 1 - 200_n 2527.RDS")
 
-knn_none_cm <- readRDS(paste0(dirpath2,"/model/knn_none_cm.RDS"))
-knn_up_cm <- readRDS(paste0(dirpath2,"/model/knn_up_cm.RDS"))
-knn_down_cm <- readRDS(paste0(dirpath2,"/model/knn_down_cm.RDS"))
+SDE_knn_tune_results <- readRDS("./model/SDE_knn_k 1 - 200_n 2527_results.RDS")
+SDE_knn_tune_roc <- readRDS("./model/SDE_knn_k 1 - 200_n 2527_roc.RDS")
+
+SDE_knn_none_cm <- readRDS("./model/SDE_knn_none_k 1 - 200_n 2527_cm.RDS")
+SDE_knn_up_cm <- readRDS("./model/SDE_knn_up_k 1 - 200_n 2527_cm.RDS")
+SDE_knn_down_cm <- readRDS("./model/SDE_knn_down_k 1 - 200_n 2527_cm.RDS")
 
 ##############################################################################
 
@@ -150,19 +153,42 @@ ui <- fluidPage(
              plotlyOutput("graph_quali")
     ),
     
-    tabPanel("KNN",
-             plotlyOutput("f_measure_knn"),
+    tabPanel("KNN 0",
+             fluidRow(
+               column(8,
+                      h2("F-measure"),
+                      plotlyOutput("SDE_knn_f_measure")
+               ),
+               column(4,
+                      h2("ROC"),
+                      plotlyOutput("SDE_knn_roc")
+               )
+             ),
              fluidRow(
                column(4,
-                      verbatimTextOutput("confusion_matrix_down")
+                      h2("Analytics"),
+                      dataTableOutput("SDE_knn_results")
+               ),
+               column(8,
+                      h2("Confusion Matrix"),
+                      plotOutput("SDE_knn_cm_all")
+               )
+             ),
+             fluidRow(
+               h2("Model details"),
+               column(4,
+                      verbatimTextOutput("SDE_knn_cm_down")
                ),
                column(4,
-                      verbatimTextOutput("confusion_matrix_none")
+                      verbatimTextOutput("SDE_knn_cm_none")
                ),
                column(4,
-                      verbatimTextOutput("confusion_matrix_up")
-               ))
-    ), # end tabPanel("KNN"
+                      verbatimTextOutput("SDE_knn_cm_up")
+               )
+             )
+             
+             
+    ), # end tabPanel("KNN 0")
     
     ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
     ############################################# SDE ##############################################
@@ -408,7 +434,7 @@ server <- function(input, output) {
   ###### tab Variables #####
   output$graph_quanti <- renderPlotly({
     plt <- plot_ly(type = "box")
-    for (i in num) {
+    for(i in num){
       plt <- add_boxplot(plt, y = as.vector(scale(loan[, i])), name = i, visible = "legendonly")
     }
     plt
@@ -456,7 +482,7 @@ server <- function(input, output) {
   
   output$graph_quanti_click <- renderPrint({
     d <- event_data("plotly_click")
-    if (is.null(d)) {
+    if (is.null(d)){
       "Cliquez sur un boxplot!"
     } else {
       col <- d[1,"x"]
@@ -464,10 +490,10 @@ server <- function(input, output) {
         plt <- plot_ly(type = "box")
         plt <- add_boxplot(plt, y = as.vector(loan[loan$loan_status == "FP", col]), name = "Fully Paid",
                            marker = list(color = 'rgb(159, 223, 190)'),
-                                         line = list(color = "rgb(64, 191, 125)"))
+                           line = list(color = "rgb(64, 191, 125)"))
         plt <- add_boxplot(plt, y = as.vector(loan[loan$loan_status == "CO", col]), name = "Charged Off",
                            marker = list(color = "rgb(255, 179, 179)"),
-                                         line = list(color = "rgb(255, 128, 128)"))
+                           line = list(color = "rgb(255, 128, 128)"))
         layout(plt,
                title = paste("Répartition pour la variable ", col))
       })
@@ -475,18 +501,36 @@ server <- function(input, output) {
   })
   
   ###### tab KNN #####
-  output$f_measure_knn <- renderPlotly({
-    plt <- plot_ly(mode = "lines", type = 'scatter') %>%
-      add_trace(data = knn_tune_none$results, x = ~k, y = ~F, line = list(color = c("green")), name = "none") %>%
-      add_trace(data = knn_tune_up$results, x = ~k, y = ~F, line = list(color = c("red")), name = "up") %>%
-      add_trace(data = knn_tune_down$results, x = ~k, y = ~F, line = list(color = c("blue")), name = "down") %>%
+  output$SDE_knn_f_measure <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = SDE_knn_tune_none$results, x = ~k, y = ~F, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = SDE_knn_tune_up$results, x = ~k, y = ~F, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = SDE_knn_tune_down$results, x = ~k, y = ~F, line = list(color = c("blue")), name = "down") %>%
       layout(xaxis = list(title = "K", tickangle = -45),
              yaxis = list(title = "F-measure"))
   })
   
-  output$confusion_matrix_down <- renderPrint(knn_down_cm)
-  output$confusion_matrix_none <- renderPrint(knn_none_cm)
-  output$confusion_matrix_up <- renderPrint(knn_up_cm)
+  output$SDE_knn_roc <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = as.data.frame(t(SDE_knn_tune_roc$none)), x = ~specificity, y = ~sensitivity, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = as.data.frame(t(SDE_knn_tune_roc$up)), x = ~specificity, y = ~sensitivity, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = as.data.frame(t(SDE_knn_tune_roc$down)), x = ~specificity, y = ~sensitivity, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "Specificity", tickangle = -45, autorange = "reversed"),
+             yaxis = list(title = "Sensitivity"))
+  })
+  
+  output$SDE_knn_cm_all <- renderPlot({
+    cm_array <- array(c(SDE_knn_down_cm$table, SDE_knn_none_cm$table, SDE_knn_up_cm$table), dim=c(2,2,3), dimnames = list(c("Prediction CO", "Prediction FP"), c("Reference CO", "Reference FP"), c("down", "none", "up")))
+    fourfoldplot(cm_array, color = c("#CC6666", "#99CC99"), conf.level = 0, margin = 1, mfcol = c(1,3), std = "all.max")
+  })
+  
+  output$SDE_knn_cm_down <- renderPrint(SDE_knn_down_cm)
+  output$SDE_knn_cm_none <- renderPrint(SDE_knn_none_cm)
+  output$SDE_knn_cm_up <- renderPrint(SDE_knn_up_cm)
+  
+  output$SDE_knn_results <- DT::renderDataTable({
+    datatable(SDE_knn_tune_results, rownames = TRUE)
+  })
   
   ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
   ############################################# SDE ##############################################
