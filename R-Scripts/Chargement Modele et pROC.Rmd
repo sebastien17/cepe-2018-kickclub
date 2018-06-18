@@ -1,0 +1,194 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Get the data
+
+```{r}
+setwd("C:/Users/Eric/Documents/Eric/Pro/Transition/Formation/CEPE ENSAE ENSAI Certificat Data Scientist/INTENSIVE/PROJETS/KickClub Project/Lending Club/LC0715")
+filename <- "loan5.RDS"
+dta_ <- readRDS(filename)
+```
+
+# Function Declaration: Graphe Matrice de Confusion
+
+```{r}
+cm.plot <- function(table_cm){
+  tablecm <- round(t(t(table_cm) / colSums(as.matrix(table_cm))*100)) # crée les pourcentages
+  tablemelt <- melt(tablecm)
+  ggplot(tablemelt, aes(Reference, Prediction)) +
+  geom_point(aes(size = value, color = value), alpha=0.8, show.legend=FALSE) +
+  geom_text(aes(label = value), color = "white") +
+  scale_size(range = c(5,25)) +
+  scale_y_discrete(limits = rev(levels(tablemelt$Prediction))) +
+  theme_bw()
+}
+```
+
+# Extension de la matrice de confusion: Creer une fonction 'Table.Ratio' qui calcule les % de reussite par ligne et par colonne
+Table.Ratio creates a matrix that expands the standard table with % of correctly predicted vs. actual observations for each row and each column
+```{r}
+Table.Ratio <- function(predicted, actual){
+  table.res <- as.matrix(table(predicted, actual))
+    r1 <- table.res[1,1] / (table.res[1,1] + table.res[1,2])
+    r2 <- table.res[2,2] / (table.res[2,1] + table.res[2,2])
+    tot <- (table.res[1,1] + table.res[2,2]) / (table.res[1,1] + table.res[1,2] + table.res[2,1] + table.res[2,2])
+    c1 <- table.res[1,1] / (table.res[1,1] + table.res[2,1])
+    c2 <- table.res[2,2] / (table.res[1,2] + table.res[2,2])
+    newrow <- c(c1, c2)
+    newcol <- c(r1, r2, tot)
+  table.res <- rbind(table.res, col_ratio = newrow)
+  table.res <- cbind(table.res, row_ratio = newcol)
+  table.res <- round(table.res,2)
+  # rm(r1, r2, tot, c1, c2, newrow, newcol)
+  return(table.res)
+}
+```
+
+# Parameters
+
+```{r}
+sampling_factor = 0.01 
+sample_seed = 17 
+```
+
+# Data sampling preparation
+
+```{r}
+set.seed(sample_seed)
+dta_sample_index <- createDataPartition(dta_$loan_status, p = sampling_factor, list = FALSE, times = 1)
+
+paste("Nb Observations dans les donnees source - avant echantillonage : ", dim(dta_)[1])
+paste("Nb Observations dans le sample : ", length(dta_sample_index))
+
+dta_sample <- dta_[dta_sample_index,]
+train.index <- createDataPartition(dta_sample$loan_status, p = .66, list = FALSE, times = 1)
+
+paste("Nb Observations dans le le training set : ", dim(dta_sample[train.index,])[1])
+
+dta_.train.x <- data.frame(dta_sample[train.index,!(colnames(dta_) %in% c("loan_status"))])
+dta_.train.y <- as.factor(dta_sample[train.index,c("loan_status")])
+dta_.test.x <- data.frame(dta_sample[-train.index,!(colnames(dta_) %in% c("loan_status"))])
+dta_.test.y <- as.factor(dta_sample[-train.index,c("loan_status")])
+
+#Level Name Compatibility
+levels(dta_.train.y) <- c("CO","FP")
+levels(dta_.test.y) <- c("CO","FP")
+
+#Proportion verification
+table(dta_$loan_status)/sum(table(dta_$loan_status))
+table(dta_.train.y)/sum(table(dta_.train.y))
+table(dta_.test.y)/sum(table(dta_.test.y))
+```
+
+# Enregistrer et ouvrir l'environnement
+
+```{r}
+setwd("C:/Users/Eric/Documents/Eric/Pro/Transition/Formation/R Projects/cepe-2018-kickclub/Data") 
+rm(filename)
+save.image(file = "working_data_envt")
+load(file = "working_data_envt")
+```
+
+
+
+
+```{r}
+dirpath <- "C:/Users/Eric/Documents/Eric/Pro/Transition/Formation/R Projects/cepe-2018-kickclub"
+filename <- "EC_GLMNET_CV_01_up.mod"
+filename2 <- "EC_GLMNET_CV_01_down.mod"
+modele <- readRDS(paste(dirpath, "Model", filename, sep ="/"))
+modele2 <- readRDS(paste(dirpath, "Model", filename2, sep ="/"))
+class(modele) # les modeles doivent etre de class ("train"  "train.formula") pour pouvoir appliquer predict uniformement
+class(modele2)
+actual <- dta_.test.y
+probabilite <- predict(object = modele, dta_.test.x, type = "prob")
+probabilite2 <- predict(object = modele2, dta_.test.x, type = "prob")
+```
+
+```{r}
+library(pROC)
+roc_input <- data.frame(predictor = probabilite["CO"],predictor2 = probabilite2["CO"],
+                        response = as.factor(ifelse(actual == "CO",1,0)))
+colnames(roc_input) <- c("predictor", "predictor2", "response")
+
+pROC::plot.roc(pROC::roc(response = roc_input$response,
+                         predictor = roc_input$predictor), 
+                lwd = 1.5, col = 'blue', main = "ROC curve") 
+
+pROC::plot.roc(pROC::roc(response = roc_input$response,
+                         predictor = roc_input$predictor2),
+                         add = TRUE, col = 'red')
+
+legend("topright", legend=c("modele 1", "modele 2"),
+       col=c("blue", "red"), lty=1, cex=0.8)
+
+legend("topright", legend = c("mod1", "mod2"))
+
+pROC::roc(response = roc_input$response,
+                         predictor = roc_input$predictor)$auc
+
+pROC::roc(response = roc_input$response,
+                         predictor = roc_input$predictor2)$auc
+
+
+
+```
+
+Tracer les courbes ROC de 3 modeles (pre-enregistres)
+
+```{r}
+
+# Choisir 3 modeles: saisir leur nom
+modeles <- list()
+modeles[[1]] <- models_list$GLMNET_BOOT$none
+modeles[[2]] <- models_list$GLMNET_BOOT$up
+modeles[[3]] <- models_list$GLMNET_BOOT$down
+
+# Saisir le vecteur de la variable reponse sur l'echantillon test
+actual <- dta_.test.y
+
+probabilite1 <- predict(object = modeles[1], dta_.test.x, type = "prob")
+probabilite2 <- predict(object = modeles[2], dta_.test.x, type = "prob")
+probabilite3 <- predict(object = modeles[3], dta_.test.x, type = "prob")
+
+#probabilite1 <- predict(object = modeles[[1]][[1]], dta_.test.x, type = "prob")
+#probabilite2 <- predict(object = modele[[2]][[1]], dta_.test.x, type = "prob")
+#probabilite3 <- predict(object = modele[[3]][[1]], dta_.test.x, type = "prob")
+
+library(pROC)
+roc_input <- data.frame(predictor1 = probabilite1[[1]]["CO"],
+                        predictor2 = probabilite2[[1]]["CO"],
+                        predictor3 = probabilite3[[1]]["CO"],
+                        response = as.factor(ifelse(actual == "CO",1,0)))
+
+colnames(roc_input) <- c("predictor1", "predictor2", "predictor3","response")
+
+pROC::plot.roc(pROC::roc(response = roc_input$response,
+                         predictor = roc_input$predictor1), 
+                lwd = 1.5, col = 'blue', main = "ROC curve")
+
+pROC::plot.roc(pROC::roc(response = roc_input$response,
+                         predictor = roc_input$predictor2),
+                         add = TRUE, col = 'red')
+
+pROC::plot.roc(pROC::roc(response = roc_input$response,
+                         predictor = roc_input$predictor3),
+                         add = TRUE, col = 'green')
+
+legend("bottomright", legend = c("modele 1", "modele 2", "modele 3"),
+       col = c("blue", "red", "green"), lty = 1, cex = 0.8)
+
+```
+
+
+
+
+
+
+
+
+
+
+
