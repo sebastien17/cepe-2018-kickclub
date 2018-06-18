@@ -5,6 +5,19 @@ output: html_notebook
 
 CE script permet de creer une matrice de resultats ('results') a partir des donnees (cf. 'Chargement de l'environnement') et des modeles prealablement sauves (de class 'train' 'train.formula') et declines en 3 versions de re-sampling /re-equilibrage des observations ('none', 'up', 'down').
 
+# Library Loading
+
+```{r include=FALSE}
+library(caret)
+library(MLmetrics)
+library(parallel)
+library(doParallel)
+library(reshape2)
+library(ggplot2)
+library(e1071)
+library(MASS)
+library(pROC)
+```
 
 # Set path
 ```{r}
@@ -28,7 +41,7 @@ load(file = "working_data_envt")
 Le fichier 'results' a deja ete sauve: on peut l'ouvrir pour visulaiser les resultats
 ```{r}
 ## 
-results.filename <- "EC_LDA_01_results.mod"
+results.filename <- "EC_QDA_01_results.mod"
 results <- readRDS(paste0(dirpath,"/",results.filename))
 ```
 
@@ -37,14 +50,27 @@ results <- readRDS(paste0(dirpath,"/",results.filename))
 ```{r}
 # Set a list to receive the estimated models
 train_results = list()
+
 # nom du type de modele ajoute dans les graphes
-model_type <- "logit_boost"
+model_type <- "EC_LOGIBOOT_01"
+
 # nom generique qui sera utiise dans le nom du fichier results sauve a la fin
-train_results_name = "EC_Logitboost_02"
+train_results_name = "EC_LOGIBOOT_01"
+
 # nom des fichiers de modeles seja sauves, et qu'on va ouvrir pour generer results:
-filename_none <- "EC_Logitboost_02_none.mod" # ne pas oublier le suffixe '.mod' 
-filename_up <- "EC_Logitboost_02_up.mod"
-filename_down <- "EC_Logitboost_02_down.mod"   
+filename_none <- "EC_LOGIBOOT_01_none.mod" # ne pas oublier le suffixe '.mod' ou '.RDS'
+filename_up <- "EC_LOGIBOOT_01_up.mod"
+filename_down <- "EC_LOGIBOOT_01_down.mod"   
+
+# Exclusion des variables problematiques propres a la QDA
+library(stringr)
+if (sum(stringr::str_detect(c(filename_none, filename_up, filename_down),"QDA")) +
+    sum(stringr::str_detect(c(filename_none, filename_up, filename_down),"qda")) > 0) {
+      dta_ <- dta_ %>% dplyr::select(-c(sub_grade, addr_state))
+      dta_sample <- dta_sample %>% dplyr::select(-c(sub_grade, addr_state))
+      dta_.train.x <- dta_.train.x %>% dplyr::select(-c(sub_grade, addr_state))
+      dta_.test.x <- dta_.test.x %>% dplyr::select(-c(sub_grade, addr_state))
+      }
 
 # Saisir le nom des modeles
 train_results[["none"]] <- readRDS(paste0(dirpath,"/",filename_none))   # model.glmnet_cv
@@ -76,16 +102,26 @@ rownames(results) <- c("Accuracy", "Kappa", "F-measure", "Sensitivity", "Specifi
 ```{r echo=TRUE}
 samp_ <- "none"
 samp_
+
 plot(train_results[[samp_]])
+perf <- plot(train_results[[samp_]])
 plot(train_results[[samp_]], metric = 'AUC')
 paste('Best tune : ', train_results[[samp_]]$bestTune) 
+
 prediction <- predict(object = train_results[[samp_]], dta_.test.x, type = "raw") 
 # Error when using: 'object = train_results[[samp_]]$finalModel': "no applicable method for 'predict' applied to an object of class "LogitBoost" "
 head(prediction)
+
 conf_matrix <- confusionMatrix(prediction, dta_.test.y)
 conf_matrix
 cm.plot(conf_matrix$table)
-plot(varImp(train_results[[samp_]]), main = paste0("Variable Importance: ", model_type, " sampling = ", samp_))
+cm <- cm.plot(conf_matrix$table)
+
+plot(varImp(train_results[[samp_]]), main = paste0("Variable Importance: ", model_type, " sampling = ", samp_)) # FAILS with 'gbm' method
+varimp <- plot(varImp(train_results[[samp_]]), main = paste0("Variable Importance: ", model_type, " sampling = ", samp_))
+#summary(train_results[[samp_]]) # returns 'relative influence' for 'gbm' models!
+#varimp <- summary(train_results[[samp_]])
+
 # Remplissage de la matrice de resultats: 'results'
 results["Accuracy", samp_] <- round(conf_matrix$overall[["Accuracy"]],4)
 results["Kappa", samp_] <- round(conf_matrix$overall[["Kappa"]],4)
@@ -94,6 +130,26 @@ results["Sensitivity", samp_] <- round(sensitivity(data = prediction, reference 
 results["Specificity", samp_] <- round(specificity(data = prediction, reference = dta_.test.y),4)
 results["Precision / posPredValue", samp_] <- round(precision(data = prediction, reference = dta_.test.y),4)
 results["negPredValue", samp_] <- round(negPredValue(data = prediction, reference = dta_.test.y),4)
+
+# Plot de la ROC curve (AUC)
+roc_input <- data.frame(predictor = predict(object = train_results[[samp_]], dta_.test.x, type = "prob")["CO"],
+                        response = as.factor(ifelse(dta_.test.y == "CO",1,0)))
+
+colnames(roc_input) <- c("predictor", "response")
+
+pROC::plot.roc(pROC::roc(response = roc_input$response,
+                         predictor = roc_input$predictor), 
+                lwd = 1.5, col = 'blue', main = paste0("ROC curve : ",train_results_name,"_",samp_))
+# placer le graphe dans un objet
+roc <- pROC::plot.roc(pROC::roc(response = roc_input$response,
+                         predictor = roc_input$predictor), 
+                lwd = 1.5, col = 'blue', main = paste0("ROC curve : ",train_results_name,"_",samp_))
+
+# Sauvegarde des graphiques
+saveRDS(perf, paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_perf_g.RDS"))
+saveRDS(cm, paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_cm_g.RDS"))
+saveRDS(varimp, paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_varimp_g.RDS"))
+saveRDS(roc, paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_roc_g.RDS"))
 ```
 
 # Predictions Sampling "up"
@@ -101,16 +157,26 @@ results["negPredValue", samp_] <- round(negPredValue(data = prediction, referenc
 ```{r echo=TRUE}
 samp_ <- "up"
 samp_
+
 plot(train_results[[samp_]])
+perf <- plot(train_results[[samp_]])
 plot(train_results[[samp_]], metric = 'AUC')
 paste('Best tune : ', train_results[[samp_]]$bestTune) 
+
 prediction <- predict(object = train_results[[samp_]], dta_.test.x, type = "raw") 
 # Error when using: 'object = train_results[[samp_]]$finalModel': "no applicable method for 'predict' applied to an object of class "LogitBoost" "
 head(prediction)
+
 conf_matrix <- confusionMatrix(prediction, dta_.test.y)
 conf_matrix
 cm.plot(conf_matrix$table)
-plot(varImp(train_results[[samp_]]), main = paste0("Variable Importance: ", model_type, " sampling = ", samp_))
+cm <- cm.plot(conf_matrix$table)
+
+plot(varImp(train_results[[samp_]]), main = paste0("Variable Importance: ", model_type, " sampling = ", samp_)) # FAILS with 'gbm' method
+varimp <- plot(varImp(train_results[[samp_]]), main = paste0("Variable Importance: ", model_type, " sampling = ", samp_))
+# summary(train_results[[samp_]]) # returns 'relative influence' for 'gbm' models!
+# varimp <- summary(train_results[[samp_]])
+
 # Remplissage de la matrice de resultats: 'results'
 results["Accuracy", samp_] <- round(conf_matrix$overall[["Accuracy"]],4)
 results["Kappa", samp_] <- round(conf_matrix$overall[["Kappa"]],4)
@@ -119,6 +185,26 @@ results["Sensitivity", samp_] <- round(sensitivity(data = prediction, reference 
 results["Specificity", samp_] <- round(specificity(data = prediction, reference = dta_.test.y),4)
 results["Precision / posPredValue", samp_] <- round(precision(data = prediction, reference = dta_.test.y),4)
 results["negPredValue", samp_] <- round(negPredValue(data = prediction, reference = dta_.test.y),4)
+
+# Plot de la ROC curve (AUC)
+roc_input <- data.frame(predictor = predict(object = train_results[[samp_]], dta_.test.x, type = "prob")["CO"],
+                        response = as.factor(ifelse(dta_.test.y == "CO",1,0)))
+
+colnames(roc_input) <- c("predictor", "response")
+
+pROC::plot.roc(pROC::roc(response = roc_input$response,
+                         predictor = roc_input$predictor), 
+                lwd = 1.5, col = 'blue', main = paste0("ROC curve : ",train_results_name,"_",samp_))
+# placer le graphe dans un objet
+roc <- pROC::plot.roc(pROC::roc(response = roc_input$response,
+                         predictor = roc_input$predictor), 
+                lwd = 1.5, col = 'blue', main = paste0("ROC curve : ",train_results_name,"_",samp_))
+
+# Sauvegarde des graphiques
+saveRDS(perf, paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_perf_g.RDS"))
+saveRDS(cm, paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_cm_g.RDS"))
+saveRDS(varimp, paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_varimp_g.RDS"))
+saveRDS(roc, paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_roc_g.RDS"))
 ```
 
 # Predictions Sampling "down"
@@ -126,16 +212,26 @@ results["negPredValue", samp_] <- round(negPredValue(data = prediction, referenc
 ```{r echo=TRUE}
 samp_ <- "down"
 samp_
+
 plot(train_results[[samp_]])
+perf <- plot(train_results[[samp_]])
 plot(train_results[[samp_]], metric = 'AUC')
 paste('Best tune : ', train_results[[samp_]]$bestTune) 
+
 prediction <- predict(object = train_results[[samp_]], dta_.test.x, type = "raw") 
 # Error when using: 'object = train_results[[samp_]]$finalModel': "no applicable method for 'predict' applied to an object of class "LogitBoost" "
 head(prediction)
+
 conf_matrix <- confusionMatrix(prediction, dta_.test.y)
 conf_matrix
 cm.plot(conf_matrix$table)
-plot(varImp(train_results[[samp_]]), main = paste0("Variable Importance: ", model_type, " sampling = ", samp_))
+cm <- cm.plot(conf_matrix$table)
+
+plot(varImp(train_results[[samp_]]), main = paste0("Variable Importance: ", model_type, " sampling = ", samp_)) # FAILSS with gbm() models
+varimp <- plot(varImp(train_results[[samp_]]), main = paste0("Variable Importance: ", model_type, " sampling = ", samp_))
+# summary(train_results[[samp_]]) # returns 'relative influence' for 'gbm' models!
+# varimp <- summary(train_results[[samp_]])
+
 # Remplissage de la matrice de resultats: 'results'
 results["Accuracy", samp_] <- round(conf_matrix$overall[["Accuracy"]],4)
 results["Kappa", samp_] <- round(conf_matrix$overall[["Kappa"]],4)
@@ -144,6 +240,26 @@ results["Sensitivity", samp_] <- round(sensitivity(data = prediction, reference 
 results["Specificity", samp_] <- round(specificity(data = prediction, reference = dta_.test.y),4)
 results["Precision / posPredValue", samp_] <- round(precision(data = prediction, reference = dta_.test.y),4)
 results["negPredValue", samp_] <- round(negPredValue(data = prediction, reference = dta_.test.y),4)
+
+# Plot de la ROC curve (AUC)
+roc_input <- data.frame(predictor = predict(object = train_results[[samp_]], dta_.test.x, type = "prob")["CO"],
+                        response = as.factor(ifelse(dta_.test.y == "CO",1,0)))
+
+colnames(roc_input) <- c("predictor", "response")
+
+pROC::plot.roc(pROC::roc(response = roc_input$response,
+                         predictor = roc_input$predictor), 
+                lwd = 1.5, col = 'blue', main = paste0("ROC curve : ",train_results_name,"_",samp_))
+# placer le graphe dans un objet
+roc <- pROC::plot.roc(pROC::roc(response = roc_input$response,
+                         predictor = roc_input$predictor), 
+                lwd = 1.5, col = 'blue', main = paste0("ROC curve : ",train_results_name,"_",samp_))
+
+# Sauvegarde des graphiques
+saveRDS(perf, paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_perf_g.RDS"))
+saveRDS(cm, paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_cm_g.RDS"))
+saveRDS(varimp, paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_varimp_g.RDS"))
+saveRDS(roc, paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_roc_g.RDS"))
 ```
 
 ```{r}
@@ -177,12 +293,24 @@ results
 
 ```{r}
 # Ne pas executer si les modeles sont deja sauves
-#for (samp_ in c("none","up","down")) { 
-#  saveRDS(train_results[[samp_]], paste0(dirpath,"/",train_results_name,"_", samp_,".mod"))
-#}
+for (samp_ in c("none","up","down")) { 
+  saveRDS(train_results[[samp_]], paste0(dirpath,"/",train_results_name,"_", samp_,".mod"))
+}
+
 # Sauver le results summary 
 saveRDS(results, paste0(dirpath,"/",train_results_name,"_results",".mod"))
 ```
+
+# Re-ouvrir les graphes sauvegardes:
+
+```{r}
+readRDS(paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_perf_g.RDS"))
+readRDS(paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_cm_g.RDS"))
+readRDS(paste0(dirpath,"/Graph/",train_results_name,"_", samp_,"_varimp_g.RDS"))
+readRDS(paste0(dirpath,"/Graph/", "EC_Logitboost_02_down_cm_g.RDS"))
+pROC::plot.roc(readRDS(paste0(dirpath,"/Graph/", "EC_Logitboost_02_down_roc_g.RDS")),lwd = 1.5, col = 'blue')
+```
+
 
 
 # Inside the ROC curve 
@@ -193,7 +321,7 @@ saveRDS(results, paste0(dirpath,"/",train_results_name,"_results",".mod"))
 - Plot manuel de la ROC curve
 ```{r}
 # Charger un modele au choix
-my_model <- "SL_RF_01_down.mod" 
+my_model <- "SL_Adaboost_01_up.mod" 
 modele <- readRDS(paste0(dirpath,"/",my_model))
 
 probabilite <- predict(object = modele, dta_.test.x, type = "prob")
@@ -206,7 +334,7 @@ my.cutoff <- seq(0.1,0.9,0.05)
 coords_details <- round(coords(roc_train, c(-Inf, sort(my.cutoff), Inf), input = "threshold", ret = c("specificity", "sensitivity")),2)
 coords_details
 
-# on peut donc retracer la ROC curve
+# on peut donc retracer la ROC curve (add = TRUE pour ajouter une autre courbe)
 plot(coords_details["specificity",], coords_details["sensitivity",], 
      xlim = c(1, 0), type = "l", col = 'blue',
      xlab = "Specificity", ylab = "Sensitivity")
