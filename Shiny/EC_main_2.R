@@ -1,13 +1,13 @@
 library(shiny)
 library(plotly)
+library(DT)
 
-dirpath <- "C:/Users/Eric/Documents/Eric/Pro/Transition/Formation/CEPE ENSAE ENSAI Certificat Data Scientist/INTENSIVE/PROJETS/KickClub Project/Lending Club/LC0715"
-dirpath2 <- "."
+dirpath2 <- "C:/Users/sebde/OneDrive/Documents/cepe-2018-kickclub/Shiny"
 
 models_list = list()
 Results_list <- list()
 
-loan <- readRDS("./loan.RDS")
+loan <- readRDS(paste0(dirpath2,"./loan.RDS"))
 cl <- sapply(loan, class)
 fact <- sort(colnames(loan)[which(cl == "factor")])
 num <- sort(colnames(loan)[which(cl %in% c("integer", "numeric"))])
@@ -16,9 +16,9 @@ num <- sort(colnames(loan)[which(cl %in% c("integer", "numeric"))])
 ############################################ SDE ##############################################
 ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
 
-KNN_0_models <-  list("none" = readRDS("./model/SDE_knn_none_k 1 - 200_n 2527.RDS"),
-                 "up" = readRDS("./model/SDE_knn_up_k 1 - 200_n 2527.RDS"),
-                 "down" = readRDS("./model/SDE_knn_down_k 1 - 200_n 2527.RDS"))
+KNN_0_models <-  list("none" = readRDS(paste0(dirpath2,"./model/SDE_knn_none_k 1 - 200_n 2527.RDS")),
+                 "up" = readRDS(paste0(dirpath2,"./model/SDE_knn_up_k 1 - 200_n 2527.RDS")),
+                 "down" = readRDS(paste0(dirpath2,"./model/SDE_knn_down_k 1 - 200_n 2527.RDS")))
 
 models_list[["KNN_SD_0"]] <- KNN_0_models
 
@@ -29,11 +29,11 @@ models_list[["KNN_SD_0"]] <- KNN_0_models
 
 # SDE_knn_tune_results <- readRDS("./model/SDE_knn_k 1 - 200_n 2527_results.RDS")
 
-SDE_knn_tune_roc <- readRDS("./model/SDE_knn_k 1 - 200_n 2527_roc.RDS")
+SDE_knn_tune_roc <- readRDS(paste0(dirpath2,"./model/SDE_knn_k 1 - 200_n 2527_roc.RDS"))
 
-SDE_knn_none_cm <- readRDS("./model/SDE_knn_none_k 1 - 200_n 2527_cm.RDS")
-SDE_knn_up_cm <- readRDS("./model/SDE_knn_up_k 1 - 200_n 2527_cm.RDS")
-SDE_knn_down_cm <- readRDS("./model/SDE_knn_down_k 1 - 200_n 2527_cm.RDS")
+SDE_knn_none_cm <- readRDS(paste0(dirpath2,"./model/SDE_knn_none_k 1 - 200_n 2527_cm.RDS"))
+SDE_knn_up_cm <- readRDS(paste0(dirpath2,"./model/SDE_knn_up_k 1 - 200_n 2527_cm.RDS"))
+SDE_knn_down_cm <- readRDS(paste0(dirpath2,"./model/SDE_knn_down_k 1 - 200_n 2527_cm.RDS"))
 
 Results_list[["KNN_SD_0"]] <- readRDS("./model/SDE_knn_k 1 - 200_n 2527_results.RDS")
 
@@ -147,6 +147,8 @@ for(mod.name in names(Results_list)){
   }
 }
 
+all_measure$prediction <- ""
+
 measures <- c("Accuracy",
               "Kappa",
               "F-measure",
@@ -201,7 +203,27 @@ ui <- fluidPage(
                                                                               "Specificity",
                                                                               "Precision / posPredValue",
                                                                               "negPredValue",
-                                                                              "AUC"))
+                                                                              "AUC")),
+                 
+                 fluidRow(
+                   column(4,
+                          actionButton("generate_sample", "Generate Sample")
+                   ),
+                   column(4,
+                          selectInput("selected_mod", label = NULL, choices = c("CO", "FP"))
+                   ),
+                   column(4,
+                          textOutput("sample")
+                   )
+                 ),
+                 fluidRow(
+                   column(6,
+                          tableOutput("vote_result")
+                   ),
+                   column(6,
+                          h2(textOutput("vote"))
+                   )
+                 )
                ),
                
                # Show a plot of the generated distribution
@@ -565,7 +587,7 @@ server <- function(input, output) {
   
   ###### tab GENERAL #####
   output$best_model_table <- DT::renderDataTable({
-
+    
     method <- TRUE
     if(measure_method[input$measure_name, "method"] == "min"){
       method <- FALSE
@@ -574,11 +596,78 @@ server <- function(input, output) {
     df_f <- na.omit(all_measure[all_measure[,"measure_name"] == input$measure_name,])
     row_order <- order(df_f$measure, decreasing = method)
     df_f_o <- df_f[row_order,]
-
-    datatable(df_f_o, rownames = FALSE, selection = list(selected = c(1), target = 'row'))
     
+    datatable(df_f_o, rownames = FALSE, selection = list(selected = c(1), target = 'row'))
   })
   
+  observeEvent(input$generate_sample, {
+    
+    loan_mod <- loan[which(loan[, "loan_status"] == input$selected_mod),]
+    r <- sample(rownames(loan_mod), size = 1)
+    
+    output$sample <- renderText({
+      as.character(r)
+    })
+    
+    output$sample_prediction <- renderText({
+      as.character(loan[r, "loan_status"])
+    })
+    
+    output$best_model_table <- DT::renderDataTable({
+      # calcul des pred
+      pred <- list()
+      for(mod.name in names(models_list)){
+        if(mod.name == "KNN_SD_0"){
+          loan_mm <- data.frame(cbind(loan[r, "loan_status"], as.data.frame(model.matrix(loan_status~. -1, data = loan[r,]))))
+          pred[[mod.name]] <- predict(object = models_list[[mod.name]], newdata = loan_mm[r,], type = "raw")
+        } else{
+          pred[[mod.name]] <- predict(object = models_list[[mod.name]], loan[r,], type = "raw")
+        }
+        
+      }
+      for(mod.name in names(pred)){
+        for(sampling.kind in names(pred[[mod.name]])){
+          all_measure[which(all_measure[,"modele"] == mod.name & all_measure[,"sampling_kind"] == sampling.kind), "prediction"] <- as.character(pred[[mod.name]][[sampling.kind]])
+        }
+      }
+      
+      method <- TRUE
+      if(measure_method[input$measure_name, "method"] == "min"){
+        method <- FALSE
+      }
+
+      df_f <- na.omit(all_measure[all_measure[,"measure_name"] == input$measure_name,])
+      row_order <- order(df_f$measure, decreasing = method)
+      df_f_o <- df_f[row_order,]
+      
+      output$vote_result <- renderTable({
+        vote_table <- as.data.frame(table(as.factor(all_measure$prediction))/length(measures))
+        names(vote_table) <- c("Modality", "Frequency")
+        
+        output$vote <- renderText({
+          row_ordered <- order(vote_table[,"Frequency"], decreasing = TRUE)
+          as.character(vote_table[row_ordered[1], "Modality"])
+        })
+        
+        
+        vote_table
+      })
+
+      output$vote <- renderText({
+        vote_table <- as.data.frame(table(as.factor(all_measure$prediction))/length(measures))
+        names(vote_table) <- c("Modality", "Frequency")
+        row_ordered <- order(vote_table[,"Frequency"], decreasing = TRUE)
+        
+        vote_table[row_order[1], "Modality"]
+      })
+      
+      
+      
+      datatable(df_f_o, rownames = FALSE, selection = list(selected = c(1), target = 'row'))
+      
+    })
+    
+  })
   
   ###### tab KNN #####
   output$SDE_knn_f_measure <- renderPlotly({
