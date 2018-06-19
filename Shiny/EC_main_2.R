@@ -1,46 +1,59 @@
 library(shiny)
 library(plotly)
 library(DT)
+library(gbm)
+library(caret)
+library(pROC)
 
 dirpath2 <- "C:/Users/sebde/OneDrive/Documents/cepe-2018-kickclub/Shiny"
 
 models_list = list()
-Results_list <- list()
+results_list <- list()
+cm_list <- list()
+var_imp_list <- list()
+roc_list <- list()
 
 loan <- readRDS(paste0(dirpath2,"./loan.RDS"))
 cl <- sapply(loan, class)
 fact <- sort(colnames(loan)[which(cl == "factor")])
 num <- sort(colnames(loan)[which(cl %in% c("integer", "numeric"))])
 
+set.seed(17)
+train.index <- createDataPartition(loan$loan_status, p = .66, list = FALSE, times = 1)
+
+loan.test <- as.data.frame(loan[-train.index,])
 
 ############################################ SDE ##############################################
 ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
 
+feed_roc_list <- function(x){
+  my.cutoff <- seq(0.1,0.9,0.05)
+  coords_details <- round(coords(x, c(-Inf, sort(my.cutoff), Inf), input = "threshold", ret = c("specificity", "sensitivity")),2)
+  return(coords_details)
+}
+
+
 KNN_0_models <-  list("none" = readRDS(paste0(dirpath2,"./model/SDE_knn_none_k 1 - 200_n 2527.RDS")),
-                 "up" = readRDS(paste0(dirpath2,"./model/SDE_knn_up_k 1 - 200_n 2527.RDS")),
-                 "down" = readRDS(paste0(dirpath2,"./model/SDE_knn_down_k 1 - 200_n 2527.RDS")))
+                      "up" = readRDS(paste0(dirpath2,"./model/SDE_knn_up_k 1 - 200_n 2527.RDS")),
+                      "down" = readRDS(paste0(dirpath2,"./model/SDE_knn_down_k 1 - 200_n 2527.RDS")))
 
-models_list[["KNN_SD_0"]] <- KNN_0_models
+models_list[["KNN_00"]] <- KNN_0_models
 
-# load model knn
-# SDE_knn_tune_none <- readRDS("./model/SDE_knn_none_k 1 - 200_n 2527.RDS")
-# SDE_knn_tune_up <- readRDS("./model/SDE_knn_up_k 1 - 200_n 2527.RDS")
-# SDE_knn_tune_down <- readRDS("./model/SDE_knn_down_k 1 - 200_n 2527.RDS")
+results_list[["KNN_00"]] <- readRDS("./model/SDE_knn_k 1 - 200_n 2527_results.RDS")
 
-# SDE_knn_tune_results <- readRDS("./model/SDE_knn_k 1 - 200_n 2527_results.RDS")
+# KNN_0_cm <- list("none" = readRDS(paste0(dirpath2,"./model/SDE_knn_none_k 1 - 200_n 2527_cm.RDS")),
+#                  "up" = readRDS(paste0(dirpath2,"./model/SDE_knn_up_k 1 - 200_n 2527_cm.RDS")),
+#                  "down" = readRDS(paste0(dirpath2,"./model/SDE_knn_down_k 1 - 200_n 2527_cm.RDS")))
+# 
+# cm_list[["KNN_00"]] <- KNN_0_cm
 
-SDE_knn_tune_roc <- readRDS(paste0(dirpath2,"./model/SDE_knn_k 1 - 200_n 2527_roc.RDS"))
+roc_list[["KNN_00"]] <- readRDS(paste0(dirpath2,"./model/SDE_knn_k 1 - 200_n 2527_roc.RDS"))
 
-SDE_knn_none_cm <- readRDS(paste0(dirpath2,"./model/SDE_knn_none_k 1 - 200_n 2527_cm.RDS"))
-SDE_knn_up_cm <- readRDS(paste0(dirpath2,"./model/SDE_knn_up_k 1 - 200_n 2527_cm.RDS"))
-SDE_knn_down_cm <- readRDS(paste0(dirpath2,"./model/SDE_knn_down_k 1 - 200_n 2527_cm.RDS"))
-
-Results_list[["KNN_SD_0"]] <- readRDS("./model/SDE_knn_k 1 - 200_n 2527_results.RDS")
 
 ##############################################################################
 
 "Warning in origRenderFunc() :
-  Ignoring explicitly provided widget ID 'xxxxx'; Shiny doesn't use them"
+Ignoring explicitly provided widget ID 'xxxxx'; Shiny doesn't use them"
 # options(warn = -1) # pour ne plus avoir de warning
 
 ############################################ SL ##############################################
@@ -64,8 +77,17 @@ AB <- readRDS(paste0(dirpath2,"/model/SL_Adaboost_01_results.mod"))
 models_list[["RF"]] <- RF_models
 models_list[["AB"]] <- AB_models
 
-Results_list[["RF"]] <- RF
-Results_list[["AB"]] <- AB
+results_list[["RF"]] <- RF
+results_list[["AB"]] <- AB
+
+roc_list[["AB"]] <- list("down" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/SL_Adaboost_01_down_roc_g.RDS"))),
+                         "up" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/SL_Adaboost_01_up_roc_g.RDS"))),
+                         "none" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/SL_Adaboost_01_none_roc_g.RDS"))))
+
+roc_list[["RF"]] <- list("down" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/SL_RF_01_down_roc_g.RDS"))),
+                         "up" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/SL_RF_01_up_roc_g.RDS"))),
+                         "none" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/SL_RF_01_none_roc_g.RDS"))))
+
 
 ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
 ############################################# SL ##############################################
@@ -74,70 +96,117 @@ Results_list[["AB"]] <- AB
 ############################################ EC ##############################################
 ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
 
-# Results_list <- list()  # deplace en haut pour permettre inclusion AB et RF
+# results_list <- list()  # deplace en haut pour permettre inclusion AB et RF
 
 #GLMNET Bootsrap: Specific part
 GLMNET_BOOT_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_GLMNET_BOOT_01_none.mod")),
-                 "up" = readRDS(paste0(dirpath2,"/model/EC_GLMNET_BOOT_01_up.mod")),
-                 "down" = readRDS(paste0(dirpath2,"/model/EC_GLMNET_BOOT_01_down.mod")))
+                           "up" = readRDS(paste0(dirpath2,"/model/EC_GLMNET_BOOT_01_up.mod")),
+                           "down" = readRDS(paste0(dirpath2,"/model/EC_GLMNET_BOOT_01_down.mod")))
 
 GLMNET_BOOT <- readRDS(paste0(dirpath2,"/model/EC_GLMNET_BOOT_01_results.mod"))
 
 #GLMNET Cross Validation: Specific part
 GLMNET_CV_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_GLMNET_CV_01_none.mod")),
-                          "up" = readRDS(paste0(dirpath2,"/model/EC_GLMNET_CV_01_up.mod")),
-                          "down" = readRDS(paste0(dirpath2,"/model/EC_GLMNET_CV_01_down.mod")))
+                         "up" = readRDS(paste0(dirpath2,"/model/EC_GLMNET_CV_01_up.mod")),
+                         "down" = readRDS(paste0(dirpath2,"/model/EC_GLMNET_CV_01_down.mod")))
 
 GLMNET_CV <- readRDS(paste0(dirpath2,"/model/EC_GLMNET_CV_01_results.mod"))
 
 #KNN sans eclatement des modalites et sans scaling: Specific part
-KNN_EC_01_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_KNN_01_none.mod")),
-                         "up" = readRDS(paste0(dirpath2,"/model/EC_KNN_01_up.mod")),
-                         "down" = readRDS(paste0(dirpath2,"/model/EC_KNN_01_down.mod")))
+KNN_01_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_KNN_01_none.mod")),
+                      "up" = readRDS(paste0(dirpath2,"/model/EC_KNN_01_up.mod")),
+                      "down" = readRDS(paste0(dirpath2,"/model/EC_KNN_01_down.mod")))
 
-KNN_EC_01 <- readRDS(paste0(dirpath2,"/model/EC_KNN_01_results.mod"))
+KNN_01 <- readRDS(paste0(dirpath2,"/model/EC_KNN_01_results.mod"))
 
 #KNN sans eclamtement des modalites et sans sclaing: Specific part
-KNN_EC_02_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_KNN_02_none.mod")),
-                         "up" = readRDS(paste0(dirpath2,"/model/EC_KNN_02_up.mod")),
-                         "down" = readRDS(paste0(dirpath2,"/model/EC_KNN_02_down.mod")))
+KNN_02_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_KNN_02_none.mod")),
+                      "up" = readRDS(paste0(dirpath2,"/model/EC_KNN_02_up.mod")),
+                      "down" = readRDS(paste0(dirpath2,"/model/EC_KNN_02_down.mod")))
 
-KNN_EC_02 <- readRDS(paste0(dirpath2,"/model/EC_KNN_02_results.mod"))
+KNN_02 <- readRDS(paste0(dirpath2,"/model/EC_KNN_02_results.mod"))
 
 #KNN sans eclamtement des modalites et sans sclaing: Specific part
 GBM_01_models <- list("none" = readRDS(paste0(dirpath2,"/model/EC_GBM_01_none.mod")),
-                         "up" = readRDS(paste0(dirpath2,"/model/EC_GBM_01_up.mod")),
-                         "down" = readRDS(paste0(dirpath2,"/model/EC_GBM_01_down.mod")))
+                      "up" = readRDS(paste0(dirpath2,"/model/EC_GBM_01_up.mod")),
+                      "down" = readRDS(paste0(dirpath2,"/model/EC_GBM_01_down.mod")))
 
 GBM_01 <- readRDS(paste0(dirpath2,"/model/EC_GBM_01_results.mod"))
 
 #Merge models
 models_list[["GLMNET_BOOT"]] <- GLMNET_BOOT_models
 models_list[["GLMNET_CV"]] <- GLMNET_CV_models
-models_list[["KNN_EC_01"]] <- KNN_EC_01_models
-models_list[["KNN_EC_02"]] <- KNN_EC_02_models
+models_list[["KNN_01"]] <- KNN_01_models
+models_list[["KNN_02"]] <- KNN_02_models
 models_list[["GBM_01"]] <- GBM_01_models
 
 #Merge models' results
-Results_list[["GLMNET_BOOT"]] <- GLMNET_BOOT
-Results_list[["GLMNET_CV"]] <- GLMNET_CV
-Results_list[["KNN_EC_01"]] <- KNN_EC_01
-Results_list[["KNN_EC_02"]] <- KNN_EC_02
-Results_list[["GBM_01"]] <- GBM_01
+results_list[["GLMNET_BOOT"]] <- GLMNET_BOOT
+results_list[["GLMNET_CV"]] <- GLMNET_CV
+results_list[["KNN_01"]] <- KNN_01
+results_list[["KNN_02"]] <- KNN_02
+results_list[["GBM_01"]] <- GBM_01
+
+roc_list[["GLMNET_BOOT"]] <- list("down" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_GLMNET_BOOT_01_down_roc_g.RDS"))),
+                                  "up" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_GLMNET_BOOT_01_up_roc_g.RDS"))),
+                                  "none" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_GLMNET_BOOT_01_none_roc_g.RDS"))))
+
+roc_list[["GLMNET_CV"]] <- list("down" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_GLMNET_CV_01_down_roc_g.RDS"))),
+                                "up" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_GLMNET_CV_01_up_roc_g.RDS"))),
+                                "none" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_GLMNET_CV_01_none_roc_g.RDS"))))
+
+roc_list[["KNN_01"]] <- list("down" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_KNN_01_down_roc_g.RDS"))),
+                             "up" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_KNN_01_up_roc_g.RDS"))),
+                             "none" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_KNN_01_none_roc_g.RDS"))))
+
+roc_list[["KNN_02"]] <- list("down" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_KNN_02_down_roc_g.RDS"))),
+                             "up" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_KNN_02_up_roc_g.RDS"))),
+                             "none" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_KNN_02_none_roc_g.RDS"))))
+
+roc_list[["GBM_01"]] <- list("down" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_GBM_01_down_roc_g.RDS"))),
+                             "up" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_GBM_01_up_roc_g.RDS"))),
+                             "none" = feed_roc_list(readRDS(paste0(dirpath2,"/model/Graph/EC_GBM_01_none_roc_g.RDS"))))
+
 
 ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
 ############################################# EC ##############################################
 
+# calcul de var_imp_list
+for(mod.name in names(models_list)){
+  
+  
+  for(sm in c("none", "up", "down")){
+    temp <- varImp(models_list[[mod.name]][[sm]])
+    temp <- temp$importance[1]
+    colnames(temp) <- c("importance")
+    temp$variable <- rownames(temp)
+    
+    temp <- temp[order(temp["importance"], decreasing = TRUE),]
+    var_imp_list[[mod.name]][[sm]] <- temp
+  }
+}
 
-
-
+for(mod.name in names(models_list)){
+  for(sampling.method in c("none", "up", "down")){
+    if(mod.name == "KNN_00"){
+      loan.test.mm <- data.frame(cbind(loan.test[, "loan_status"], as.data.frame(model.matrix(loan_status~. -1, data = loan.test))))
+      prediction <- predict(object = models_list[[mod.name]][[sampling.method]], loan.test.mm, type = "raw") 
+    } else {
+      prediction <- predict(object = models_list[[mod.name]][[sampling.method]], loan.test, type = "raw") 
+      # Error when using: 'object = train_results[[samp_]]$finalModel': "no applicable method for 'predict' applied to an object of class "LogitBoost" "
+    }
+    conf_matrix <- confusionMatrix(prediction, loan.test$loan_status)
+    
+    cm_list[[mod.name]][[sampling.method]] <- conf_matrix
+  }
+}
 
 all_measure <- data.frame()
 
-for(mod.name in names(Results_list)){
+for(mod.name in names(results_list)){
   for(sk in c("down", "none", "up")){
     df <- data.frame()
-    df <- as.data.frame(Results_list[[mod.name]][,sk])
+    df <- as.data.frame(results_list[[mod.name]][,sk])
     colnames(df) <- "measure"
     df["measure_name"] <- rownames(df)
     df["sampling_kind"] <- sk
@@ -172,28 +241,35 @@ ui <- fluidPage(
   #   sidebarPanel(
   #   ),
   #   mainPanel(
- 
-   tabsetPanel(
+  
+  tabsetPanel(
     
-     ############################################ SDE ##############################################
-     ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
-     
+    ############################################ VARIABLES ##############################################
+    ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
+    
     tabPanel("Variables",
              h2("Variables Quantitatives"),
              fluidRow(
-              column(8,
-                     plotlyOutput("graph_quanti")
-                     ),
-              column(4,
-                     textOutput("graph_quanti_click"),
-                     plotlyOutput("graph_quanti_details")
-              )
+               column(8,
+                      plotlyOutput("graph_quanti")
+               ),
+               column(4,
+                      textOutput("graph_quanti_click"),
+                      plotlyOutput("graph_quanti_details")
+               )
              ),
              h2("Variables Qualitatives"),
              radioButtons("rb_quali", label = "", choices = fact, inline = TRUE),
              plotlyOutput("graph_quali")
     ),
-    tabPanel("GENERAL",
+    
+    ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+    ############################################# VARIABLES ##############################################
+    
+    ############################################ GENERAL ##############################################
+    ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
+    
+    tabPanel("General",
              sidebarLayout(
                sidebarPanel(
                  radioButtons("measure_name", label = "Criteria", choices = c("Accuracy",
@@ -223,7 +299,8 @@ ui <- fluidPage(
                    column(6,
                           h2(textOutput("vote"))
                    )
-                 )
+                 ),
+                 tableOutput("ind_details")
                ),
                
                # Show a plot of the generated distribution
@@ -235,277 +312,360 @@ ui <- fluidPage(
              
              
     ),
-    tabPanel("KNN 0",
+    
+    ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+    ############################################# GENERAL ##############################################
+    
+    ############################################ KNN_00 ##############################################
+    ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
+    tabPanel("KNN_00",
              fluidRow(
                column(8,
                       h2("F-measure"),
-                      plotlyOutput("SDE_knn_f_measure")
+                      plotlyOutput("KNN_00_f_measure")
                ),
                column(4,
                       h2("ROC"),
-                      plotlyOutput("SDE_knn_roc")
+                      plotlyOutput("KNN_00_roc")
                )
              ),
              fluidRow(
                column(4,
                       h2("Analytics"),
-                      dataTableOutput("SDE_knn_results")
+                      dataTableOutput("KNN_00_results"),
+                      h2("Variable Importance"),
+                      plotlyOutput("KNN_00_var_imp")
                ),
                column(8,
                       h2("Confusion Matrix"),
-                      plotOutput("SDE_knn_cm_all")
-               )
-             ),
-             fluidRow(
-               h2("Model details"),
-               column(4,
-                      verbatimTextOutput("SDE_knn_cm_down")
-               ),
-               column(4,
-                      verbatimTextOutput("SDE_knn_cm_none")
-               ),
-               column(4,
-                      verbatimTextOutput("SDE_knn_cm_up")
+                      plotOutput("KNN_00_cm"),
+                      fluidRow(
+                        h2("Model details"),
+                        column(4,
+                               verbatimTextOutput("KNN_00_down_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("KNN_00_none_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("KNN_00_up_output")
+                        )
+                      )
                )
              )
+             
              
              
     ), # end tabPanel("KNN 0")
     
     ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
-    ############################################# SDE ##############################################
+    ############################################# KNN_00 ##############################################
     
-    
-    ############################################ SL ##############################################
+    ############################################ KNN_01 ##############################################
     ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
-    
-    tabPanel("Random Forest",
-             plotlyOutput("SL_f_measure_RF"),
+    tabPanel("KNN_01",
+             fluidRow(
+               column(8,
+                      h2("F-measure"),
+                      plotlyOutput("KNN_01_f_measure")
+               ),
+               column(4,
+                      h2("ROC"),
+                      plotlyOutput("KNN_01_roc")
+               )
+             ),
              fluidRow(
                column(4,
-                      div(style = "text-align:center","Down"),
-                      verbatimTextOutput("SL_RF_confusion_matrix_down")
+                      h2("Analytics"),
+                      dataTableOutput("KNN_01_results"),
+                      h2("Variable Importance"),
+                      plotlyOutput("KNN_01_var_imp")
                ),
-               column(4,
-                      div(style = "text-align:center","None"),
-                      verbatimTextOutput("SL_RF_confusion_matrix_none")
-               ),
-               column(4,
-                      div(style = "text-align:center","Up"),
-                      verbatimTextOutput("SL_RF_confusion_matrix_up")
-               ),column(4,
-                        div(style = "text-align:center","Key Performance Metrics"),
-                        verbatimTextOutput("SL_RF_results")
-               ))
+               column(8,
+                      h2("Confusion Matrix"),
+                      plotOutput("KNN_01_cm"),
+                      fluidRow(
+                        h2("Model details"),
+                        column(4,
+                               verbatimTextOutput("KNN_01_down_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("KNN_01_none_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("KNN_01_up_output")
+                        )
+                      )
+               )
+             )
+             
+             
     ),
-    
-    tabPanel("AdaBoost",
-             plotlyOutput("SL_f_measure_AB"),
-             fluidRow(
-               column(4,
-                      div(style="text-align:center","Down"),
-                      verbatimTextOutput("SL_AB_confusion_matrix_down")
-               ),
-               column(4,
-                      div(style="text-align:center","None"),
-                      verbatimTextOutput("SL_AB_confusion_matrix_none")
-               ),
-               column(4,
-                      div(style="text-align:center","Up"),
-                      verbatimTextOutput("SL_AB_confusion_matrix_up")
-               ),column(4,
-                        div(style = "text-align:center","Key Performance Metrics"),
-                        verbatimTextOutput("SL_AB_results")
-               ))
-    ),
-    
     ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
-    ############################################# SL ##############################################
+    ############################################# KNN_01 ##############################################
     
-    
-    ############################################ EC ##############################################
+    ############################################ KNN_02 ##############################################
     ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
-    
-    tabPanel("GLMNET Bootstrap",
-             plotlyOutput("EC_f_measure_GLMNET_BOOT"),
+    tabPanel("KNN_02",
              fluidRow(
-               #column(4,
-               #       div(style = "text-align:center","Down"),
-               #       verbatimTextOutput("EC_GLMNET_BOOT_confusion_matrix_down")
-               #),
-               #column(4,
-               #       div(style = "text-align:center","None"),
-               #       verbatimTextOutput("EC_GLMNET_BOOT_confusion_matrix_none")
-               #),
-               #column(4,
-               #       div(style = "text-align:center","Up"),
-               #       verbatimTextOutput("EC_GLMNET_BOOT_confusion_matrix_up")
-               #),
-               column(4,
-                      div(style = "text-align:center","Key Performance Metrics"),
-                      verbatimTextOutput("EC_GLMNET_BOOT_results")
+               column(8,
+                      h2("F-measure"),
+                      plotlyOutput("KNN_02_f_measure")
                ),
                column(4,
-                      div(style = "text-align:center","Model infos","down"),
-                      verbatimTextOutput("EC_GLMNET_BOOT_infos_down")
-               ),
-               column(4,
-                      div(style = "text-align:center","Model infos","none"),
-                      verbatimTextOutput("EC_GLMNET_BOOT_infos_none")
-               ),
-               column(4,
-                      div(style = "text-align:center","Model infos", "up"),
-                      verbatimTextOutput("EC_GLMNET_BOOT_infos_up")
-               ))
-    ),
-    
-    tabPanel("GLMNET Cross Validation",
-             plotlyOutput("EC_f_measure_GLMNET_CV"),
+                      h2("ROC"),
+                      plotlyOutput("KNN_02_roc")
+               )
+             ),
              fluidRow(
-               #column(4,
-               #       div(style = "text-align:center","Down"),
-               #       verbatimTextOutput("EC_GLMNET_CV_confusion_matrix_down")
-               #),
-               #column(4,
-               #       div(style = "text-align:center","None"),
-               #       verbatimTextOutput("EC_GLMNET_CV_confusion_matrix_none")
-               #),
-               #column(4,
-               #       div(style = "text-align:center","Up"),
-               #       verbatimTextOutput("EC_GLMNET_CV_confusion_matrix_up")
-               #),
                column(4,
-                      div(style = "text-align:center","Key Performance Metrics"),
-                      verbatimTextOutput("EC_GLMNET_CV_results")
+                      h2("Analytics"),
+                      dataTableOutput("KNN_02_results"),
+                      h2("Variable Importance"),
+                      plotlyOutput("KNN_02_var_imp")
                ),
-               column(4,
-                      div(style = "text-align:center","Model infos","down"),
-                      verbatimTextOutput("EC_GLMNET_CV_infos_down")
-               ),
-               column(4,
-                      div(style = "text-align:center","Model infos","none"),
-                      verbatimTextOutput("EC_GLMNET_CV_infos_none")
-               ),
-               column(4,
-                      div(style = "text-align:center","Model infos", "up"),
-                      verbatimTextOutput("EC_GLMNET_CV_infos_up")
-               ))
+               column(8,
+                      h2("Confusion Matrix"),
+                      plotOutput("KNN_02_cm"),
+                      fluidRow(
+                        h2("Model details"),
+                        column(4,
+                               verbatimTextOutput("KNN_02_down_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("KNN_02_none_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("KNN_02_up_output")
+                        )
+                      )
+               )
+             )
+             
+             
     ),
-    
-    tabPanel("KNN EC 01",
-             plotlyOutput("EC_f_measure_KNN_EC_01"),
-             fluidRow(
-               #column(4,
-               #       div(style = "text-align:center","Down"),
-               #       verbatimTextOutput("EC_KNN_01_confusion_matrix_down")
-               #),
-               #column(4,
-               #       div(style = "text-align:center","None"),
-               #       verbatimTextOutput("EC_KNN_01_confusion_matrix_none")
-               #),
-               #column(4,
-               #       div(style = "text-align:center","Up"),
-               #       verbatimTextOutput("EC_KNN_01_confusion_matrix_up")
-               #),
-               column(4,
-                      div(style = "text-align:center","Key Performance Metrics"),
-                      verbatimTextOutput("EC_KNN_01_results")
-               ),
-               column(4,
-                      div(style = "text-align:center","Model infos","down"),
-                      verbatimTextOutput("EC_KNN_01_infos_down")
-               ),
-               column(4,
-                      div(style = "text-align:center","Model infos","none"),
-                      verbatimTextOutput("EC_KNN_01_infos_none")
-               ),
-               column(4,
-                      div(style = "text-align:center","Model infos", "up"),
-                      verbatimTextOutput("EC_KNN_01_infos_up")
-               ))
-    ),
-    
-    tabPanel("KNN EC 02",
-             plotlyOutput("EC_f_measure_KNN_EC_02"),
-             fluidRow(
-               #column(4,
-               #       div(style = "text-align:center","Down"),
-               #       verbatimTextOutput("EC_KNN_02_confusion_matrix_down")
-               #),
-               #column(4,
-               #       div(style = "text-align:center","None"),
-               #       verbatimTextOutput("EC_KNN_02_confusion_matrix_none")
-               #),
-               #column(4,
-               #       div(style = "text-align:center","Up"),
-               #       verbatimTextOutput("EC_KNN_02_confusion_matrix_up")
-               #),
-               column(4,
-                      div(style = "text-align:center","Key Performance Metrics"),
-                      verbatimTextOutput("EC_KNN_02_results")
-               ),
-               column(4,
-                      div(style = "text-align:center","Model infos","down"),
-                      verbatimTextOutput("EC_KNN_02_infos_down")
-               ),
-               column(4,
-                      div(style = "text-align:center","Model infos","none"),
-                      verbatimTextOutput("EC_KNN_02_infos_none")
-               ),
-               column(4,
-                      div(style = "text-align:center","Model infos", "up"),
-                      verbatimTextOutput("EC_KNN_02_infos_up")
-               ))
-    ),
-    
-    tabPanel("GBM 01",
-             plotlyOutput("EC_f_measure_EC_GBM_01"),
-             fluidRow(
-               #column(4,
-               #       div(style = "text-align:center","Down"),
-               #       verbatimTextOutput("EC_GBM_01_confusion_matrix_down")
-               #),
-               #column(4,
-               #       div(style = "text-align:center","None"),
-               #       verbatimTextOutput("EC_GBM_01_confusion_matrix_none")
-               #),
-               #column(4,
-               #       div(style = "text-align:center","Up"),
-               #       verbatimTextOutput("EC_GBM_01_confusion_matrix_up")
-               #),
-               column(4,
-                      div(style = "text-align:center","Key Performance Metrics"),
-                      verbatimTextOutput("EC_GBM_01_results")
-               ),
-               column(4,
-                      div(style = "text-align:center","Model infos","down"),
-                      verbatimTextOutput("EC_GBM_01_infos_down")
-               ),
-               column(4,
-                      div(style = "text-align:center","Model infos","none"),
-                      verbatimTextOutput("EC_GBM_01_infos_none")
-               ),
-               column(4,
-                      div(style = "text-align:center","Model infos", "up"),
-                      verbatimTextOutput("EC_GBM_01_infos_up")
-               ))
-    ),
-    
     ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
-    ############################################# EC ##############################################
- 
-  
-  ############################################ GG ##############################################
-  ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##   
-  
-  tabPanel("AUTRE"
-           
+    ############################################# KNN_02 ##############################################
+    
+    ############################################ AB ##############################################
+    ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
+    tabPanel("AB",
+             fluidRow(
+               column(8,
+                      h2("F-measure"),
+                      plotlyOutput("AB_f_measure")
+               ),
+               column(4,
+                      h2("ROC"),
+                      plotlyOutput("AB_roc")
+               )
+             ),
+             fluidRow(
+               column(4,
+                      h2("Analytics"),
+                      dataTableOutput("AB_results"),
+                      h2("Variable Importance"),
+                      plotlyOutput("AB_var_imp")
+               ),
+               column(8,
+                      h2("Confusion Matrix"),
+                      plotOutput("AB_cm"),
+                      fluidRow(
+                        h2("Model details"),
+                        column(4,
+                               verbatimTextOutput("AB_down_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("AB_none_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("AB_up_output")
+                        )
+                      )
+               )
+             )
+             
+             
+    ),
+    ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+    ############################################# AB ##############################################
+    
+    ############################################ RF ##############################################
+    ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
+    tabPanel("RF",
+             fluidRow(
+               column(8,
+                      h2("F-measure"),
+                      plotlyOutput("RF_f_measure")
+               ),
+               column(4,
+                      h2("ROC"),
+                      plotlyOutput("RF_roc")
+               )
+             ),
+             fluidRow(
+               column(4,
+                      h2("Analytics"),
+                      dataTableOutput("RF_results"),
+                      h2("Variable Importance"),
+                      plotlyOutput("RF_var_imp")
+               ),
+               column(8,
+                      h2("Confusion Matrix"),
+                      plotOutput("RF_cm"),
+                      fluidRow(
+                        h2("Model details"),
+                        column(4,
+                               verbatimTextOutput("RF_down_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("RF_none_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("RF_up_output")
+                        )
+                      )
+               )
+             )
+             
+             
+    ),
+    ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+    ############################################# RF ##############################################
+    
+    ############################################ GLMNET_BOOT ##############################################
+    ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
+    tabPanel("GLMNET_BOOT",
+             fluidRow(
+               column(8,
+                      h2("F-measure"),
+                      plotlyOutput("GLMNET_BOOT_f_measure")
+               ),
+               column(4,
+                      h2("ROC"),
+                      plotlyOutput("GLMNET_BOOT_roc")
+               )
+             ),
+             fluidRow(
+               column(4,
+                      h2("Analytics"),
+                      dataTableOutput("GLMNET_BOOT_results"),
+                      h2("Variable Importance"),
+                      plotlyOutput("GLMNET_BOOT_var_imp")
+               ),
+               column(8,
+                      h2("Confusion Matrix"),
+                      plotOutput("GLMNET_BOOT_cm"),
+                      fluidRow(
+                        h2("Model details"),
+                        column(4,
+                               verbatimTextOutput("GLMNET_BOOT_down_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("GLMNET_BOOT_none_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("GLMNET_BOOT_up_output")
+                        )
+                      )
+               )
+             )
+             
+             
+    ),
+    ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+    ############################################# GLMNET_BOOT ##############################################
+    
+    ############################################ GLMNET_CV ##############################################
+    ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
+    tabPanel("GLMNET_CV",
+             fluidRow(
+               column(8,
+                      h2("F-measure"),
+                      plotlyOutput("GLMNET_CV_f_measure")
+               ),
+               column(4,
+                      h2("ROC"),
+                      plotlyOutput("GLMNET_CV_roc")
+               )
+             ),
+             fluidRow(
+               column(4,
+                      h2("Analytics"),
+                      dataTableOutput("GLMNET_CV_results"),
+                      h2("Variable Importance"),
+                      plotlyOutput("GLMNET_CV_var_imp")
+               ),
+               column(8,
+                      h2("Confusion Matrix"),
+                      plotOutput("GLMNET_CV_cm"),
+                      fluidRow(
+                        h2("Model details"),
+                        column(4,
+                               verbatimTextOutput("GLMNET_CV_down_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("GLMNET_CV_none_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("GLMNET_CV_up_output")
+                        )
+                      )
+               )
+             )
+             
+             
+    ),
+    ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+    ############################################# GLMNET_CV ##############################################
+    
+    ############################################ GBM_01 ##############################################
+    ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
+    tabPanel("GBM_01",
+             fluidRow(
+               column(8,
+                      h2("F-measure"),
+                      plotlyOutput("GBM_01_f_measure")
+               ),
+               column(4,
+                      h2("ROC"),
+                      plotlyOutput("GBM_01_roc")
+               )
+             ),
+             fluidRow(
+               column(4,
+                      h2("Analytics"),
+                      dataTableOutput("GBM_01_results"),
+                      h2("Variable Importance"),
+                      plotlyOutput("GBM_01_var_imp")
+               ),
+               column(8,
+                      h2("Confusion Matrix"),
+                      plotOutput("GBM_01_cm"),
+                      fluidRow(
+                        h2("Model details"),
+                        column(4,
+                               verbatimTextOutput("GBM_01_down_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("GBM_01_none_output")
+                        ),
+                        column(4,
+                               verbatimTextOutput("GBM_01_up_output")
+                        )
+                      )
+               )
+             )
+             
+             
+    )
+    ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+    ############################################# GBM_01 ##############################################
+    
+    
   )
 )
-)
 
-##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
-############################################# GG ##############################################
 
 
 ####################### SERVER ####################################################################
@@ -513,7 +673,7 @@ ui <- fluidPage(
 ### Define server logic required to draw a histogram
 server <- function(input, output) {
   
-  ############################################ SDE ##############################################
+  ############################################ VARIABLE ##############################################
   ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
   
   ###### tab Variables #####
@@ -585,14 +745,19 @@ server <- function(input, output) {
     }
   })
   
-  ###### tab GENERAL #####
+  ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+  ############################################# VARIABLE ##############################################
+  
+  
+  ############################################ GENERAL ##############################################
+  ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
   output$best_model_table <- DT::renderDataTable({
     
     method <- TRUE
     if(measure_method[input$measure_name, "method"] == "min"){
       method <- FALSE
     }
-
+    
     df_f <- na.omit(all_measure[all_measure[,"measure_name"] == input$measure_name,])
     row_order <- order(df_f$measure, decreasing = method)
     df_f_o <- df_f[row_order,]
@@ -617,7 +782,7 @@ server <- function(input, output) {
       # calcul des pred
       pred <- list()
       for(mod.name in names(models_list)){
-        if(mod.name == "KNN_SD_0"){
+        if(mod.name == "KNN_00"){
           loan_mm <- data.frame(cbind(loan[r, "loan_status"], as.data.frame(model.matrix(loan_status~. -1, data = loan[r,]))))
           pred[[mod.name]] <- predict(object = models_list[[mod.name]], newdata = loan_mm[r,], type = "raw")
         } else{
@@ -635,7 +800,7 @@ server <- function(input, output) {
       if(measure_method[input$measure_name, "method"] == "min"){
         method <- FALSE
       }
-
+      
       df_f <- na.omit(all_measure[all_measure[,"measure_name"] == input$measure_name,])
       row_order <- order(df_f$measure, decreasing = method)
       df_f_o <- df_f[row_order,]
@@ -652,7 +817,12 @@ server <- function(input, output) {
         
         vote_table
       })
-
+      
+      output$ind_details <- renderTable(rownames = TRUE,
+                                        {
+                                          t(loan[r,])
+                                        })
+      
       output$vote <- renderText({
         vote_table <- as.data.frame(table(as.factor(all_measure$prediction))/length(measures))
         names(vote_table) <- c("Modality", "Frequency")
@@ -663,185 +833,358 @@ server <- function(input, output) {
       
       
       
+      
+      
       datatable(df_f_o, rownames = FALSE, selection = list(selected = c(1), target = 'row'))
       
     })
     
   })
   
+  ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+  ############################################# GENERAL ##############################################
+  
+  
+  ############################################ KNN_00 ##############################################
+  ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
+  
   ###### tab KNN #####
-  output$SDE_knn_f_measure <- renderPlotly({
+  output$KNN_00_f_measure <- renderPlotly({
     plot_ly(mode = "lines", type = 'scatter') %>%
-      add_trace(data = models_list$KNN_SD_0$none$results, x = ~k, y = ~F, line = list(color = c("green")), name = "none") %>%
-      add_trace(data = models_list$KNN_SD_0$up$results, x = ~k, y = ~F, line = list(color = c("red")), name = "up") %>%
-      add_trace(data = models_list$KNN_SD_0$down$results, x = ~k, y = ~F, line = list(color = c("blue")), name = "down") %>%
+      add_trace(data = models_list$KNN_00$none$results, x = ~k, y = ~F, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = models_list$KNN_00$up$results, x = ~k, y = ~F, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = models_list$KNN_00$down$results, x = ~k, y = ~F, line = list(color = c("blue")), name = "down") %>%
       layout(xaxis = list(title = "K", tickangle = -45),
              yaxis = list(title = "F-measure"))
   })
   
-  output$SDE_knn_roc <- renderPlotly({
+  output$KNN_00_var_imp <- renderPlotly({
+    plot_ly(type = 'bar') %>%
+      add_trace(data = var_imp_list[["KNN_00"]][["none"]], y = ~variable, x = ~importance, marker = list(color = c("green")), name = "none") %>%
+      add_trace(data = var_imp_list[["KNN_00"]][["up"]], y = ~variable, x = ~importance, marker = list(color = c("red")), name = "up") %>%
+      add_trace(data = var_imp_list[["KNN_00"]][["down"]], y = ~variable, x = ~importance, marker = list(color = c("blue")), name = "down") %>%
+      layout(yaxis = list(autorange = "reversed"), margin = list(l = 200, r = 50, b = 50, t = 50, pad = 4))
+  })
+  
+  output$KNN_00_roc <- renderPlotly({
     plot_ly(mode = "lines", type = 'scatter') %>%
-      add_trace(data = as.data.frame(t(SDE_knn_tune_roc$none)), x = ~specificity, y = ~sensitivity, line = list(color = c("green")), name = "none") %>%
-      add_trace(data = as.data.frame(t(SDE_knn_tune_roc$up)), x = ~specificity, y = ~sensitivity, line = list(color = c("red")), name = "up") %>%
-      add_trace(data = as.data.frame(t(SDE_knn_tune_roc$down)), x = ~specificity, y = ~sensitivity, line = list(color = c("blue")), name = "down") %>%
+      add_trace(data = as.data.frame(t(roc_list$KNN_00$none)), x = ~specificity, y = ~sensitivity, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = as.data.frame(t(roc_list$KNN_00$up)), x = ~specificity, y = ~sensitivity, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = as.data.frame(t(roc_list$KNN_00$down)), x = ~specificity, y = ~sensitivity, line = list(color = c("blue")), name = "down") %>%
       layout(xaxis = list(title = "Specificity", tickangle = -45, autorange = "reversed"),
              yaxis = list(title = "Sensitivity"))
   })
   
-  output$SDE_knn_cm_all <- renderPlot({
-    cm_array <- array(c(SDE_knn_down_cm$table, SDE_knn_none_cm$table, SDE_knn_up_cm$table), dim=c(2,2,3), dimnames = list(c("Prediction CO", "Prediction FP"), c("Reference CO", "Reference FP"), c("down", "none", "up")))
+  output$KNN_00_cm <- renderPlot({
+    cm_array <- array(c(cm_list$KNN_00$down$table, cm_list$KNN_00$none$table, cm_list$KNN_00$up$table), dim=c(2,2,3), dimnames = list(c("Prediction CO", "Prediction FP"), c("Reference CO", "Reference FP"), c("down", "none", "up")))
     fourfoldplot(cm_array, color = c("#CC6666", "#99CC99"), conf.level = 0, margin = 1, mfcol = c(1,3), std = "all.max")
   })
   
-  output$SDE_knn_cm_down <- renderPrint(SDE_knn_down_cm)
-  output$SDE_knn_cm_none <- renderPrint(SDE_knn_none_cm)
-  output$SDE_knn_cm_up <- renderPrint(SDE_knn_up_cm)
+  output$KNN_00_down_output <- renderPrint(cm_list$KNN_00$down)
+  output$KNN_00_none_output <- renderPrint(cm_list$KNN_00$none)
+  output$KNN_00_up_output <- renderPrint(cm_list$KNN_00$up)
   
-  output$SDE_knn_results <- DT::renderDataTable({
-    datatable(Results_list$KNN_SD_0, rownames = TRUE)
+  output$KNN_00_results <- DT::renderDataTable({
+    datatable(results_list$KNN_00, rownames = TRUE)
   })
   
   ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
-  ############################################# SDE ##############################################
+  ############################################# KNN_00 ##############################################
   
-  
-  ############################################ SL ##############################################
+  ############################################ KNN_01 ##############################################
   ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
-  output$SL_f_measure_RF <- renderPlotly({
-    plt <- plot_ly(mode = "lines", type = 'scatter') %>%
-      add_trace(data = models_list[["RF"]][["none"]]$results, x = ~mtry, y = ~F, line = list(color = c("green")), name = "none") %>%
-      add_trace(data = models_list[["RF"]][["up"]]$results, x = ~mtry, y = ~F, line = list(color = c("red")), name = "up") %>%
-      add_trace(data = models_list[["RF"]][["down"]]$results, x = ~mtry, y = ~F, line = list(color = c("blue")), name = "down") %>%
-      layout(xaxis = list(title = "Mtry", tickangle = -45),
+  output$KNN_01_f_measure <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = models_list$KNN_01$none$results, x = ~k, y = ~F, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = models_list$KNN_01$up$results, x = ~k, y = ~F, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = models_list$KNN_01$down$results, x = ~k, y = ~F, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "K", tickangle = -45),
              yaxis = list(title = "F-measure"))
   })
   
-  output$SL_RF_results <- renderPrint(Results_list[["RF"]])
-  output$SL_RF_confusion_matrix_down <- renderPrint(models_list[["RF"]][["down"]])
-  output$SL_RF_confusion_matrix_none <- renderPrint(models_list[["RF"]][["none"]])
-  output$SL_RF_confusion_matrix_up <- renderPrint(models_list[["RF"]][["up"]])
+  output$KNN_01_var_imp <- renderPlotly({
+    plot_ly(type = 'bar') %>%
+      add_trace(data = var_imp_list[["KNN_01"]][["none"]], y = ~variable, x = ~importance, marker = list(color = c("green")), name = "none") %>%
+      add_trace(data = var_imp_list[["KNN_01"]][["up"]], y = ~variable, x = ~importance, marker = list(color = c("red")), name = "up") %>%
+      add_trace(data = var_imp_list[["KNN_01"]][["down"]], y = ~variable, x = ~importance, marker = list(color = c("blue")), name = "down") %>%
+      layout(yaxis = list(autorange = "reversed"), margin = list(l = 200, r = 50, b = 50, t = 50, pad = 4))
+  })
   
+  output$KNN_01_roc <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = as.data.frame(t(roc_list$KNN_01$none)), x = ~specificity, y = ~sensitivity, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = as.data.frame(t(roc_list$KNN_01$up)), x = ~specificity, y = ~sensitivity, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = as.data.frame(t(roc_list$KNN_01$down)), x = ~specificity, y = ~sensitivity, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "Specificity", tickangle = -45, autorange = "reversed"),
+             yaxis = list(title = "Sensitivity"))
+  })
   
-  output$SL_f_measure_AB <- renderPlotly({
-    plt <- plot_ly(mode = "lines", type = 'scatter') %>%
-      add_trace(data = models_list[["AB"]][["none"]]$results, x = ~nIter, y = ~F, line = list(color = c("green")), name = "none") %>%
-      add_trace(data = models_list[["AB"]][["up"]]$results, x = ~nIter, y = ~F, line = list(color = c("red")), name = "up") %>%
-      add_trace(data = models_list[["AB"]][["down"]]$results, x = ~nIter, y = ~F, line = list(color = c("blue")), name = "down") %>%
+  output$KNN_01_cm <- renderPlot({
+    cm_array <- array(c(cm_list$KNN_01$down$table, cm_list$KNN_01$none$table, cm_list$KNN_01$up$table), dim=c(2,2,3), dimnames = list(c("Prediction CO", "Prediction FP"), c("Reference CO", "Reference FP"), c("down", "none", "up")))
+    fourfoldplot(cm_array, color = c("#CC6666", "#99CC99"), conf.level = 0, margin = 1, mfcol = c(1,3), std = "all.max")
+  })
+  
+  output$KNN_01_down_output <- renderPrint(cm_list$KNN_01$down)
+  output$KNN_01_none_output <- renderPrint(cm_list$KNN_01$none)
+  output$KNN_01_up_output <- renderPrint(cm_list$KNN_01$up)
+  
+  output$KNN_01_results <- DT::renderDataTable({
+    datatable(results_list$KNN_01, rownames = TRUE)
+  })  
+  ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+  ############################################# KNN_01 ##############################################
+  
+  ############################################ KNN_02 ##############################################
+  ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
+  output$KNN_02_f_measure <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = models_list$KNN_02$none$results, x = ~k, y = ~F, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = models_list$KNN_02$up$results, x = ~k, y = ~F, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = models_list$KNN_02$down$results, x = ~k, y = ~F, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "K", tickangle = -45),
+             yaxis = list(title = "F-measure"))
+  })
+  
+  output$KNN_02_var_imp <- renderPlotly({
+    plot_ly(type = 'bar') %>%
+      add_trace(data = var_imp_list[["KNN_02"]][["none"]], y = ~variable, x = ~importance, marker = list(color = c("green")), name = "none") %>%
+      add_trace(data = var_imp_list[["KNN_02"]][["up"]], y = ~variable, x = ~importance, marker = list(color = c("red")), name = "up") %>%
+      add_trace(data = var_imp_list[["KNN_02"]][["down"]], y = ~variable, x = ~importance, marker = list(color = c("blue")), name = "down") %>%
+      layout(yaxis = list(autorange = "reversed"), margin = list(l = 200, r = 50, b = 50, t = 50, pad = 4))
+  })
+  
+  output$KNN_02_roc <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = as.data.frame(t(roc_list$KNN_02$none)), x = ~specificity, y = ~sensitivity, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = as.data.frame(t(roc_list$KNN_02$up)), x = ~specificity, y = ~sensitivity, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = as.data.frame(t(roc_list$KNN_02$down)), x = ~specificity, y = ~sensitivity, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "Specificity", tickangle = -45, autorange = "reversed"),
+             yaxis = list(title = "Sensitivity"))
+  })
+  
+  output$KNN_02_cm <- renderPlot({
+    cm_array <- array(c(cm_list$KNN_02$down$table, cm_list$KNN_02$none$table, cm_list$KNN_02$up$table), dim=c(2,2,3), dimnames = list(c("Prediction CO", "Prediction FP"), c("Reference CO", "Reference FP"), c("down", "none", "up")))
+    fourfoldplot(cm_array, color = c("#CC6666", "#99CC99"), conf.level = 0, margin = 1, mfcol = c(1,3), std = "all.max")
+  })
+  
+  output$KNN_02_down_output <- renderPrint(cm_list$KNN_02$down)
+  output$KNN_02_none_output <- renderPrint(cm_list$KNN_02$none)
+  output$KNN_02_up_output <- renderPrint(cm_list$KNN_02$up)
+  
+  output$KNN_02_results <- DT::renderDataTable({
+    datatable(results_list$KNN_02, rownames = TRUE)
+  })  
+  ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+  ############################################# KNN_02 ##############################################
+  
+  ############################################ AB ##############################################
+  ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
+  output$AB_f_measure <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = models_list$AB$none$results, x = ~nIter, y = ~F, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = models_list$AB$up$results, x = ~nIter, y = ~F, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = models_list$AB$down$results, x = ~nIter, y = ~F, line = list(color = c("blue")), name = "down") %>%
       layout(xaxis = list(title = "nIter", tickangle = -45),
              yaxis = list(title = "F-measure"))
   })
   
-  output$SL_AB_results <- renderPrint(Results_list[["AB"]])
-  output$SL_AB_confusion_matrix_down <- renderPrint(models_list[["AB"]][["down"]])
-  output$SL_AB_confusion_matrix_none <- renderPrint(models_list[["AB"]][["none"]])
-  output$SL_AB_confusion_matrix_up <- renderPrint(models_list[["AB"]][["up"]])
+  output$AB_var_imp <- renderPlotly({
+    plot_ly(type = 'bar') %>%
+      add_trace(data = var_imp_list[["AB"]][["none"]], y = ~variable, x = ~importance, marker = list(color = c("green")), name = "none") %>%
+      add_trace(data = var_imp_list[["AB"]][["up"]], y = ~variable, x = ~importance, marker = list(color = c("red")), name = "up") %>%
+      add_trace(data = var_imp_list[["AB"]][["down"]], y = ~variable, x = ~importance, marker = list(color = c("blue")), name = "down") %>%
+      layout(yaxis = list(autorange = "reversed"), margin = list(l = 200, r = 50, b = 50, t = 50, pad = 4))
+  })
   
+  output$AB_roc <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = as.data.frame(t(roc_list$AB$none)), x = ~specificity, y = ~sensitivity, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = as.data.frame(t(roc_list$AB$up)), x = ~specificity, y = ~sensitivity, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = as.data.frame(t(roc_list$AB$down)), x = ~specificity, y = ~sensitivity, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "Specificity", tickangle = -45, autorange = "reversed"),
+             yaxis = list(title = "Sensitivity"))
+  })
   
+  output$AB_cm <- renderPlot({
+    cm_array <- array(c(cm_list$AB$down$table, cm_list$AB$none$table, cm_list$AB$up$table), dim=c(2,2,3), dimnames = list(c("Prediction CO", "Prediction FP"), c("Reference CO", "Reference FP"), c("down", "none", "up")))
+    fourfoldplot(cm_array, color = c("#CC6666", "#99CC99"), conf.level = 0, margin = 1, mfcol = c(1,3), std = "all.max")
+  })
+  
+  output$AB_down_output <- renderPrint(cm_list$AB$down)
+  output$AB_none_output <- renderPrint(cm_list$AB$none)
+  output$AB_up_output <- renderPrint(cm_list$AB$up)
+  
+  output$AB_results <- DT::renderDataTable({
+    datatable(results_list$AB, rownames = TRUE)
+  })   
   ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
-  ############################################# SL ##############################################
+  ############################################# AB ##############################################
   
-  
-  ############################################ EC ##############################################
+  ############################################ RF ##############################################
   ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
-  output$EC_f_measure_GLMNET_BOOT <- renderPlotly({
-    plt <- plot_ly(mode = "lines", type = 'scatter3d') %>%
-      add_trace(data = models_list[["GLMNET_BOOT"]][["none"]]$results, x = ~alpha, z = ~F, y = ~lambda, line = list(color = c("green")), name = "none") %>%
-      add_trace(data = models_list[["GLMNET_BOOT"]][["up"]]$results, x = ~alpha, z = ~F, y = ~lambda, line = list(color = c("red")), name = "up") %>%
-      add_trace(data = models_list[["GLMNET_BOOT"]][["down"]]$results, x = ~alpha, z = ~F, y = ~lambda, line = list(color = c("blue")), name = "down") %>%
-      layout(xaxis = list(title = "Alpha", tickangle = -45),
-             yaxis = list(title = "Lambda"),
-             zaxis = list(title = "F-measure"))
+  output$RF_f_measure <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = models_list$RF$none$results, x = ~mtry, y = ~F, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = models_list$RF$up$results, x = ~mtry, y = ~F, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = models_list$RF$down$results, x = ~mtry, y = ~F, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "mtry", tickangle = -45),
+             yaxis = list(title = "F-measure"))
   })
   
-  output$EC_GLMNET_BOOT_results <- renderPrint(Results_list[["GLMNET_BOOT"]])
-  output$EC_GLMNET_BOOT_infos_down <- renderPrint(models_list[["GLMNET_BOOT"]][["down"]])
-  output$EC_GLMNET_BOOT_infos_none <- renderPrint(models_list[["GLMNET_BOOT"]][["none"]])
-  output$EC_GLMNET_BOOT_infos_up <- renderPrint(models_list[["GLMNET_BOOT"]][["up"]])
-  #output$EC_GLMNET_BOOT_confusion_matrix_down <- renderPrint(models_list[["GLMNET_BOOT"]][["down"]])
-  #output$EC_GLMNET_BOOT_confusion_matrix_none <- renderPrint(models_list[["GLMNET_BOOT"]][["none"]])
-  #output$EC_GLMNET_BOOT_confusion_matrix_up <- renderPrint(models_list[["GLMNET_BOOT"]][["up"]])
-  
-  
-  output$EC_f_measure_GLMNET_CV <- renderPlotly({
-    plt <- plot_ly(mode = "lines", type = 'scatter3d') %>%
-      add_trace(data = models_list[["GLMNET_CV"]][["none"]]$results, x = ~alpha, y = ~lambda, z = ~F, line = list(color = c("green")), name = "none") %>%
-      add_trace(data = models_list[["GLMNET_CV"]][["up"]]$results, x = ~alpha, y = ~lambda, z = ~F, line = list(color = c("red")), name = "up") %>%
-      add_trace(data = models_list[["GLMNET_CV"]][["down"]]$results, x = ~alpha, y = ~lambda, z = ~F, line = list(color = c("blue")), name = "down") %>%
-      layout(xaxis = list(title = "Alpha", tickangle = -45),
-             yaxis = list(title = "Lambda"),
-             zaxis = list(title = "F-measure"))
+  output$RF_var_imp <- renderPlotly({
+    plot_ly(type = 'bar') %>%
+      add_trace(data = var_imp_list[["RF"]][["none"]], y = ~variable, x = ~importance, marker = list(color = c("green")), name = "none") %>%
+      add_trace(data = var_imp_list[["RF"]][["up"]], y = ~variable, x = ~importance, marker = list(color = c("red")), name = "up") %>%
+      add_trace(data = var_imp_list[["RF"]][["down"]], y = ~variable, x = ~importance, marker = list(color = c("blue")), name = "down") %>%
+      layout(yaxis = list(autorange = "reversed"), margin = list(l = 200, r = 50, b = 50, t = 50, pad = 4))
   })
   
-  
-  output$EC_GLMNET_CV_results <- renderPrint(Results_list[["GLMNET_CV"]])
-  output$EC_GLMNET_CV_infos_down <- renderPrint(models_list[["GLMNET_CV"]][["down"]])
-  output$EC_GLMNET_CV_infos_none <- renderPrint(models_list[["GLMNET_CV"]][["none"]])
-  output$EC_GLMNET_CV_infos_up <- renderPrint(models_list[["GLMNET_CV"]][["up"]])
-  #output$EC_GLMNET_CV_confusion_matrix_down <- renderPrint(models_list[["GLMNET_CV"]][["down"]])
-  #output$EC_GLMNET_CV_confusion_matrix_none <- renderPrint(models_list[["GLMNET_CV"]][["none"]])
-  #output$EC_GLMNET_CV_confusion_matrix_up <- renderPrint(models_list[["GLMNET_CV"]][["up"]])
-  
-  
-  output$EC_f_measure_KNN_EC_01 <- renderPlotly({
-    plt <- plot_ly(mode = "lines", type = 'scatter') %>%
-      add_trace(data = models_list[["KNN_EC_01"]][["none"]]$results, x = ~k, y = ~ROC, line = list(color = c("green")), name = "none") %>%
-      add_trace(data = models_list[["KNN_EC_01"]][["up"]]$results, x = ~k, y = ~ROC, line = list(color = c("red")), name = "up") %>%
-      add_trace(data = models_list[["KNN_EC_01"]][["down"]]$results, x = ~k, y = ~ROC, line = list(color = c("blue")), name = "down") %>%
-      layout(xaxis = list(title = "K", tickangle = -45),
-             yaxis = list(title = "ROC"))
+  output$RF_roc <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = as.data.frame(t(roc_list$RF$none)), x = ~specificity, y = ~sensitivity, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = as.data.frame(t(roc_list$RF$up)), x = ~specificity, y = ~sensitivity, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = as.data.frame(t(roc_list$RF$down)), x = ~specificity, y = ~sensitivity, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "Specificity", tickangle = -45, autorange = "reversed"),
+             yaxis = list(title = "Sensitivity"))
   })
   
-  
-  output$EC_KNN_01_results <- renderPrint(Results_list[["KNN_EC_01"]])
-  output$EC_KNN_01_infos_down <- renderPrint(models_list[["KNN_EC_01"]][["down"]])
-  output$EC_KNN_01_infos_none <- renderPrint(models_list[["KNN_EC_01"]][["none"]])
-  output$EC_KNN_01_infos_up <- renderPrint(models_list[["KNN_EC_01"]][["up"]])
-  #output$EC_KNN_01_confusion_matrix_down <- renderPrint(models_list[["KNN_EC_01"]][["down"]])
-  #output$EC_KNN_01_confusion_matrix_none <- renderPrint(models_list[["KNN_EC_01"]][["none"]])
-  #output$EC_KNN_01_confusion_matrix_up <- renderPrint(models_list[["KNN_EC_01"]][["up"]])
-  
-  
-  output$EC_f_measure_KNN_EC_02 <- renderPlotly({
-    plt <- plot_ly(mode = "lines", type = 'scatter') %>%
-      add_trace(data = models_list[["KNN_EC_02"]][["none"]]$results, x = ~k, y = ~ROC, line = list(color = c("green")), name = "none") %>%
-      add_trace(data = models_list[["KNN_EC_02"]][["up"]]$results, x = ~k, y = ~ROC, line = list(color = c("red")), name = "up") %>%
-      add_trace(data = models_list[["KNN_EC_02"]][["down"]]$results, x = ~k, y = ~ROC, line = list(color = c("blue")), name = "down") %>%
-      layout(xaxis = list(title = "K", tickangle = -45),
-             yaxis = list(title = "ROC"))
+  output$RF_cm <- renderPlot({
+    cm_array <- array(c(cm_list$RF$down$table, cm_list$RF$none$table, cm_list$RF$up$table), dim=c(2,2,3), dimnames = list(c("Prediction CO", "Prediction FP"), c("Reference CO", "Reference FP"), c("down", "none", "up")))
+    fourfoldplot(cm_array, color = c("#CC6666", "#99CC99"), conf.level = 0, margin = 1, mfcol = c(1,3), std = "all.max")
   })
   
+  output$RF_down_output <- renderPrint(cm_list$RF$down)
+  output$RF_none_output <- renderPrint(cm_list$RF$none)
+  output$RF_up_output <- renderPrint(cm_list$RF$up)
   
-  output$EC_KNN_02_results <- renderPrint(Results_list[["KNN_EC_02"]])
-  output$EC_KNN_02_infos_down <- renderPrint(models_list[["KNN_EC_02"]][["down"]])
-  output$EC_KNN_02_infos_none <- renderPrint(models_list[["KNN_EC_02"]][["none"]])
-  output$EC_KNN_02_infos_up <- renderPrint(models_list[["KNN_EC_02"]][["up"]])
-  #output$EC_KNN_02_confusion_matrix_down <- renderPrint(models_list[["KNN_EC_02"]][["down"]])
-  #output$EC_KNN_02_confusion_matrix_none <- renderPrint(models_list[["KNN_EC_02"]][["none"]])
-  #output$EC_KNN_02_confusion_matrix_up <- renderPrint(models_list[["KNN_EC_02"]][["up"]])
-  
-  
-  output$EC_f_measure_EC_GBM_01 <- renderPlotly({
-    plt <- plot_ly(mode = "lines", type = 'scatter3d') %>%
-      add_trace(data = models_list[["GBM_01"]][["none"]]$results, x = ~n.trees, y = ~interaction.depth, z = ~F, line = list(color = c("green")), name = "none") %>%
-      add_trace(data = models_list[["GBM_01"]][["up"]]$results, x = ~n.trees, y = ~interaction.depth, z = ~F, line = list(color = c("red")), name = "up") %>%
-      add_trace(data = models_list[["GBM_01"]][["down"]]$results, x = ~n.trees, y = ~interaction.depth, z = ~F, line = list(color = c("blue")), name = "down") %>%
-      layout(xaxis = list(title = "n.trees", tickangle = -45),
-             yaxis = list(title = "interaction.depth"),
-             zaxis = list(title = "F"))
-  })
-  
-  
-  output$EC_GBM_01_results <- renderPrint(Results_list[["GBM_01"]])
-  output$EC_GBM_01_infos_down <- renderPrint(models_list[["GBM_01"]][["down"]])
-  output$EC_GBM_01_infos_none <- renderPrint(models_list[["GBM_01"]][["none"]])
-  output$EC_GBM_01_infos_up <- renderPrint(models_list[["GBM_01"]][["up"]])
-  #output$EC_GBM_01_confusion_matrix_down <- renderPrint(models_list[["GBM_01"]][["down"]])
-  #output$EC_GBM_01_confusion_matrix_none <- renderPrint(models_list[["GBM_01"]][["none"]])
-  #output$EC_GBM_01_confusion_matrix_up <- renderPrint(models_list[["GBM_01"]][["up"]])
-  
+  output$RF_results <- DT::renderDataTable({
+    datatable(results_list$RF, rownames = TRUE)
+  })   
   ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
-  ############################################# EC ##############################################
+  ############################################# RF ##############################################
   
+  ############################################ GLMNET_BOOT ##############################################
+  ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
+  output$GLMNET_BOOT_f_measure <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter3d') %>%
+      add_trace(data = models_list$GLMNET_BOOT$none$results, x = ~alpha, y = ~lambda, z = ~F, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = models_list$GLMNET_BOOT$up$results, x = ~alpha, y = ~lambda, z = ~F, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = models_list$GLMNET_BOOT$down$results, x = ~alpha, y = ~lambda, z = ~F, line = list(color = c("blue")), name = "down")
+  })
+  
+  output$GLMNET_BOOT_var_imp <- renderPlotly({
+    plot_ly(type = 'bar') %>%
+      add_trace(data = var_imp_list[["GLMNET_BOOT"]][["none"]], y = ~variable, x = ~importance, marker = list(color = c("green")), name = "none") %>%
+      add_trace(data = var_imp_list[["GLMNET_BOOT"]][["up"]], y = ~variable, x = ~importance, marker = list(color = c("red")), name = "up") %>%
+      add_trace(data = var_imp_list[["GLMNET_BOOT"]][["down"]], y = ~variable, x = ~importance, marker = list(color = c("blue")), name = "down") %>%
+      layout(yaxis = list(autorange = "reversed"), margin = list(l = 200, r = 50, b = 50, t = 50, pad = 4))
+  })
+  
+  output$GLMNET_BOOT_roc <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = as.data.frame(t(roc_list$GLMNET_BOOT$none)), x = ~specificity, y = ~sensitivity, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = as.data.frame(t(roc_list$GLMNET_BOOT$up)), x = ~specificity, y = ~sensitivity, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = as.data.frame(t(roc_list$GLMNET_BOOT$down)), x = ~specificity, y = ~sensitivity, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "Specificity", tickangle = -45, autorange = "reversed"),
+             yaxis = list(title = "Sensitivity"))
+  })
+  
+  output$GLMNET_BOOT_cm <- renderPlot({
+    cm_array <- array(c(cm_list$GLMNET_BOOT$down$table, cm_list$GLMNET_BOOT$none$table, cm_list$GLMNET_BOOT$up$table), dim=c(2,2,3), dimnames = list(c("Prediction CO", "Prediction FP"), c("Reference CO", "Reference FP"), c("down", "none", "up")))
+    fourfoldplot(cm_array, color = c("#CC6666", "#99CC99"), conf.level = 0, margin = 1, mfcol = c(1,3), std = "all.max")
+  })
+  
+  output$GLMNET_BOOT_down_output <- renderPrint(cm_list$GLMNET_BOOT$down)
+  output$GLMNET_BOOT_none_output <- renderPrint(cm_list$GLMNET_BOOT$none)
+  output$GLMNET_BOOT_up_output <- renderPrint(cm_list$GLMNET_BOOT$up)
+  
+  output$GLMNET_BOOT_results <- DT::renderDataTable({
+    datatable(results_list$GLMNET_BOOT, rownames = TRUE)
+  })   
+  ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+  ############################################# GLMNET_BOOT ##############################################
+  
+  ############################################ GLMNET_CV ##############################################
+  ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
+  output$GLMNET_CV_f_measure <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter3d') %>%
+      add_trace(data = models_list$GLMNET_CV$none$results, x = ~alpha, y = ~lambda, z = ~F, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = models_list$GLMNET_CV$up$results, x = ~alpha, y = ~lambda, z = ~F, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = models_list$GLMNET_CV$down$results, x = ~alpha, y = ~lambda, z = ~F, line = list(color = c("blue")), name = "down")
+  })
+  
+  output$GLMNET_CV_var_imp <- renderPlotly({
+    plot_ly(type = 'bar') %>%
+      add_trace(data = var_imp_list[["GLMNET_CV"]][["none"]], y = ~variable, x = ~importance, marker = list(color = c("green")), name = "none") %>%
+      add_trace(data = var_imp_list[["GLMNET_CV"]][["up"]], y = ~variable, x = ~importance, marker = list(color = c("red")), name = "up") %>%
+      add_trace(data = var_imp_list[["GLMNET_CV"]][["down"]], y = ~variable, x = ~importance, marker = list(color = c("blue")), name = "down") %>%
+      layout(yaxis = list(autorange = "reversed"), margin = list(l = 200, r = 50, b = 50, t = 50, pad = 4))
+  })
+  
+  output$GLMNET_CV_roc <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = as.data.frame(t(roc_list$GLMNET_CV$none)), x = ~specificity, y = ~sensitivity, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = as.data.frame(t(roc_list$GLMNET_CV$up)), x = ~specificity, y = ~sensitivity, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = as.data.frame(t(roc_list$GLMNET_CV$down)), x = ~specificity, y = ~sensitivity, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "Specificity", tickangle = -45, autorange = "reversed"),
+             yaxis = list(title = "Sensitivity"))
+  })
+  
+  output$GLMNET_CV_cm <- renderPlot({
+    cm_array <- array(c(cm_list$GLMNET_CV$down$table, cm_list$GLMNET_CV$none$table, cm_list$GLMNET_CV$up$table), dim=c(2,2,3), dimnames = list(c("Prediction CO", "Prediction FP"), c("Reference CO", "Reference FP"), c("down", "none", "up")))
+    fourfoldplot(cm_array, color = c("#CC6666", "#99CC99"), conf.level = 0, margin = 1, mfcol = c(1,3), std = "all.max")
+  })
+  
+  output$GLMNET_CV_down_output <- renderPrint(cm_list$GLMNET_CV$down)
+  output$GLMNET_CV_none_output <- renderPrint(cm_list$GLMNET_CV$none)
+  output$GLMNET_CV_up_output <- renderPrint(cm_list$GLMNET_CV$up)
+  
+  output$GLMNET_CV_results <- DT::renderDataTable({
+    datatable(results_list$GLMNET_CV, rownames = TRUE)
+  })   
+  ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+  ############################################# GLMNET_CV ##############################################
+  
+  ############################################ GBM_01 ##############################################
+  ##VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##
+  output$GBM_01_f_measure <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter3d') %>%
+      add_trace(data = models_list$GBM_01$none$results, x = ~interaction.depth, y = ~n.trees, z = ~F, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = models_list$GBM_01$up$results, x = ~interaction.depth, y = ~n.trees, z = ~F, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = models_list$GBM_01$down$results, x = ~interaction.depth, y = ~n.trees, z = ~F, line = list(color = c("blue")), name = "down")
+  })
+  
+  output$GBM_01_var_imp <- renderPlotly({
+    plot_ly(type = 'bar') %>%
+      add_trace(data = var_imp_list[["GBM_01"]][["none"]], y = ~variable, x = ~importance, marker = list(color = c("green")), name = "none") %>%
+      add_trace(data = var_imp_list[["GBM_01"]][["up"]], y = ~variable, x = ~importance, marker = list(color = c("red")), name = "up") %>%
+      add_trace(data = var_imp_list[["GBM_01"]][["down"]], y = ~variable, x = ~importance, marker = list(color = c("blue")), name = "down") %>%
+      layout(yaxis = list(autorange = "reversed"), margin = list(l = 200, r = 50, b = 50, t = 50, pad = 4))
+  })
+  
+  output$GBM_01_roc <- renderPlotly({
+    plot_ly(mode = "lines", type = 'scatter') %>%
+      add_trace(data = as.data.frame(t(roc_list$GBM_01$none)), x = ~specificity, y = ~sensitivity, line = list(color = c("green")), name = "none") %>%
+      add_trace(data = as.data.frame(t(roc_list$GBM_01$up)), x = ~specificity, y = ~sensitivity, line = list(color = c("red")), name = "up") %>%
+      add_trace(data = as.data.frame(t(roc_list$GBM_01$down)), x = ~specificity, y = ~sensitivity, line = list(color = c("blue")), name = "down") %>%
+      layout(xaxis = list(title = "Specificity", tickangle = -45, autorange = "reversed"),
+             yaxis = list(title = "Sensitivity"))
+  })
+  
+  output$GBM_01_cm <- renderPlot({
+    cm_array <- array(c(cm_list$GBM_01$down$table, cm_list$GBM_01$none$table, cm_list$GBM_01$up$table), dim=c(2,2,3), dimnames = list(c("Prediction CO", "Prediction FP"), c("Reference CO", "Reference FP"), c("down", "none", "up")))
+    fourfoldplot(cm_array, color = c("#CC6666", "#99CC99"), conf.level = 0, margin = 1, mfcol = c(1,3), std = "all.max")
+  })
+  
+  output$GBM_01_down_output <- renderPrint(cm_list$GBM_01$down)
+  output$GBM_01_none_output <- renderPrint(cm_list$GBM_01$none)
+  output$GBM_01_up_output <- renderPrint(cm_list$GBM_01$up)
+  
+  output$GBM_01_results <- DT::renderDataTable({
+    datatable(results_list$GBM_01, rownames = TRUE)
+  })   
+  ##^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^##
+  ############################################# GBM_01 ##############################################
   
 } # end of: server <- function(input, output)
 
